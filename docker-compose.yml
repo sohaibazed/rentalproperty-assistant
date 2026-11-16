@@ -20,7 +20,9 @@ services:
       - ./reference:/app/reference:ro
       - ./config:/app/config:ro        # email_sources.toml
       - ./memory:/app/memory           # memory.md: your standing rules (editable on the Memory page)
-    read_only: true
+    # Not read_only: Compose can only create secrets from environment variables when the
+    # container filesystem is writable. The app runs as a non-root user that can't modify
+    # its own code (root-owned) and only writes to /data, artifacts/ and memory/.
     tmpfs:
       - /tmp
       - /home/agent
