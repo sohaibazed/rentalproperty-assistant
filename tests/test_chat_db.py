@@ -23,7 +23,7 @@ JPEG = b"\xff\xd8\xff\xe0 fake receipt"
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    for k, v in {"RENTAL_UI_PASSWORD": "pw", "RENTAL_SCHEDULER": "off",
+    for k, v in {"RENTAL_UI_PASSWORD": "pw", "RENTAL_UI_USERNAME": "owner@example.com", "RENTAL_SCHEDULER": "off",
                  "RENTAL_ARTIFACTS_DIR": str(tmp_path / "artifacts"),
                  "RENTAL_DATA_DIR": str(tmp_path / "data"),
                  "RENTAL_MEMORY_FILE": str(tmp_path / "memory" / "memory.md")}.items():
@@ -57,7 +57,7 @@ def client(tmp_path, monkeypatch):
     app = create_app(store=store, manager=JobManager(store, run_fn=fake_job),
                      chats=ChatManager(store, turn_fn=fake_turn))
     with TestClient(app) as c:
-        c.post("/login", data={"password": "pw"}, headers=ORIGIN)
+        c.post("/login", data={"email": "owner@example.com", "password": "pw"}, headers=ORIGIN)
         yield c
 
 

@@ -17,6 +17,7 @@ def env(tmp_path, monkeypatch):
     key = Fernet.generate_key().decode()
     monkeypatch.setenv("RENTAL_SECRET_KEY", key)
     monkeypatch.setenv("RENTAL_UI_PASSWORD", "pw")
+    monkeypatch.setenv("RENTAL_UI_USERNAME", "owner@example.com")
     monkeypatch.setenv("RENTAL_SCHEDULER", "off")
     monkeypatch.setenv("RENTAL_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("RENTAL_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
@@ -28,7 +29,7 @@ def env(tmp_path, monkeypatch):
 @pytest.fixture
 def client(env):
     with TestClient(create_app()) as c:
-        c.post("/login", data={"password": "pw"}, headers=ORIGIN)
+        c.post("/login", data={"email": "Owner@Example.com ", "password": "pw"}, headers=ORIGIN)
         yield c
 
 
@@ -36,9 +37,13 @@ def test_requires_login(env):
     with TestClient(create_app()) as c:
         r = c.get("/", follow_redirects=False)
         assert r.status_code == 303 and r.headers["location"] == "/login"
-        c.post("/login", data={"password": "wrong"}, headers=ORIGIN)
+        r = c.post("/login", data={"email": "owner@example.com", "password": "wrong"}, headers=ORIGIN)
+        assert "Wrong email or password." in r.text
         assert c.get("/", follow_redirects=False).status_code == 303
-        c.post("/login", data={"password": "pw"}, headers=ORIGIN)
+        r = c.post("/login", data={"email": "someone@else.com", "password": "pw"}, headers=ORIGIN)
+        assert "Wrong email or password." in r.text
+        assert c.get("/", follow_redirects=False).status_code == 303
+        c.post("/login", data={"email": "Owner@Example.com ", "password": "pw"}, headers=ORIGIN)
         assert c.get("/").status_code == 200
 
 

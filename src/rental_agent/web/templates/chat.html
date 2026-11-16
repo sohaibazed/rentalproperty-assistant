@@ -7,7 +7,7 @@
   <aside class="chat-side">
     <div class="side-top">
       <a class="brand" href="/">Rental Agent</a>
-      <form method="post" action="/logout"><button class="link">Sign out</button></form>
+      <form method="post" action="/logout"><button class="link" title="Signed in as {{ request.session.get('user', '') }}">Sign out</button></form>
     </div>
     <a class="new-chat" href="/">＋ New chat</a>
     <form method="get" action="{{ '/c/%d' % chat.id if chat else '/' }}" class="side-search">

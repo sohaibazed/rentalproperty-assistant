@@ -1,6 +1,6 @@
 """Web UI: run jobs, browse results, manage secrets. Start with `make up` (Docker).
 
-Security: password login, POSTs must come from this site (Origin check), scripts only from
+Security: email + password login, POSTs must come from this site (Origin check), scripts only from
 this app's own static files (strict CSP, no inline script), model output rendered as escaped
 Markdown with http(s)/mailto links only, secrets never rendered back, file downloads limited
 to artifacts/.
@@ -45,8 +45,10 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
     manager = manager or JobManager(store)
     chats = chats or chat_views.ChatManager(store)
     password = env_or_file("RENTAL_UI_PASSWORD")
-    if not password:
-        raise RuntimeError("RENTAL_UI_PASSWORD is not set; run `make init-keys`, then `make up`")
+    username = (env_or_file("RENTAL_UI_USERNAME") or "").strip().lower()
+    if not password or not username:
+        raise RuntimeError("RENTAL_UI_USERNAME and RENTAL_UI_PASSWORD must be set; "
+                           "run `make init-keys`, then `make up`")
     public_url = os.environ.get("RENTAL_PUBLIC_URL", "http://localhost:8080").rstrip("/")
     if urlparse(public_url).hostname in ("localhost", "127.0.0.1"):
         os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"   # Google allows http only on loopback
@@ -115,12 +117,17 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         return page(request, "login.html")
 
     @app.post("/login")
-    async def login(request: Request, password_in: str = Form(alias="password")):
-        if hmac.compare_digest(password_in.encode(), password.encode()):
+    async def login(request: Request, email: str = Form(""), password_in: str = Form("", alias="password")):
+        # Compare both every time and report them together, so the page doesn't reveal
+        # whether the email or the password was wrong.
+        email_ok = hmac.compare_digest(email.strip().lower().encode(), username.encode())
+        password_ok = hmac.compare_digest(password_in.encode(), password.encode())
+        if email_ok and password_ok:
             request.session["auth"] = True
+            request.session["user"] = username
             return RedirectResponse("/", status_code=303)
         await asyncio.sleep(1)  # slow down guessing
-        flash(request, "Wrong password.", "error")
+        flash(request, "Wrong email or password.", "error")
         return RedirectResponse("/login", status_code=303)
 
     @app.post("/logout")

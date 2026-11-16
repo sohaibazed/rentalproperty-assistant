@@ -9,6 +9,7 @@ services:
     environment:
       RENTAL_SECRET_KEY_FILE: /run/secrets/rental_secret_key
       RENTAL_UI_PASSWORD_FILE: /run/secrets/rental_ui_password
+      RENTAL_UI_USERNAME: ${RENTAL_UI_USERNAME:?run make up}   # login email, from Keychain
       RENTAL_PUBLIC_URL: http://localhost:8080
       TZ: America/Chicago              # Plano, TX: the scheduler's "today"
     secrets:

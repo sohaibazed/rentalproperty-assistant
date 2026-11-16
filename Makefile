@@ -4,7 +4,7 @@
 PY := uv run python -m rental_agent
 
 .PHONY: setup test lint gmail-auth sync-email sync-email-dry tax-report generate-lease research-rent \
-        init-keys up down logs
+        init-keys set-login-email up down logs
 
 setup:  ## Create .venv and install dependencies
 	uv sync
@@ -35,11 +35,13 @@ research-rent:  ## Rent recommendation from comps: make research-rent PROPERTY=1
 
 # --- Web UI in Docker ---------------------------------------------------------------------
 # The encryption key and UI password live in your macOS Keychain and reach the container as
-# Docker secrets (files under /run/secrets), not as environment variables.
+# Docker secrets (files under /run/secrets), not as environment variables. The login email
+# is also kept in Keychain (it's personal, so not in this repo) and passed as a plain variable.
 KEY_ITEM := rental-agent-secret-key
 PW_ITEM := rental-agent-ui-password
+USER_ITEM := rental-agent-ui-username
 
-init-keys:  ## One time: create the encryption key and choose a UI password (stored in Keychain)
+init-keys:  ## One time: create the encryption key and choose a login email + password (Keychain)
 	@security find-generic-password -s $(KEY_ITEM) >/dev/null 2>&1 \
 	  && echo "Encryption key already in Keychain." \
 	  || security add-generic-password -a "$$USER" -s $(KEY_ITEM) \
@@ -47,10 +49,20 @@ init-keys:  ## One time: create the encryption key and choose a UI password (sto
 	@security find-generic-password -s $(PW_ITEM) >/dev/null 2>&1 \
 	  && echo "UI password already in Keychain." \
 	  || { echo "Choose a password for the web UI:"; security add-generic-password -a "$$USER" -s $(PW_ITEM) -w; }
+	@security find-generic-password -s $(USER_ITEM) >/dev/null 2>&1 \
+	  && echo "Login email already in Keychain." \
+	  || { read -r -p "Login email for the web UI: " email \
+	       && security add-generic-password -a "$$USER" -s $(USER_ITEM) -w "$$email"; }
+
+set-login-email:  ## Change the login email: make set-login-email EMAIL=you@example.com
+	@test -n "$(EMAIL)" || { echo "Usage: make set-login-email EMAIL=you@example.com"; exit 1; }
+	@security add-generic-password -U -a "$$USER" -s $(USER_ITEM) -w "$(EMAIL)"
+	@echo "Login email saved. Run make up to apply it."
 
 up:  ## Build and start the web UI at http://localhost:8080
 	@RENTAL_SECRET_KEY="$$(security find-generic-password -s $(KEY_ITEM) -w)" \
 	 RENTAL_UI_PASSWORD="$$(security find-generic-password -s $(PW_ITEM) -w)" \
+	 RENTAL_UI_USERNAME="$$(security find-generic-password -s $(USER_ITEM) -w)" \
 	 docker compose up -d --build
 	@echo "Open http://localhost:8080"
 
