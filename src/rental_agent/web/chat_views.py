@@ -12,7 +12,7 @@ import psycopg
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
-from rental_agent import chat, db, doc_import, memory, runner
+from rental_agent import chat, db, doc_import, memory, runner, statement_import
 from rental_agent.config import artifacts_dir, load_settings
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
 from rental_agent.web.jobs import JobManager
@@ -210,7 +210,8 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
 
     @app.post("/c/{chat_id}/m/{msg_id}/p/{pid}")
     async def act_on_proposal(request: Request, chat_id: int, msg_id: int, pid: str):
-        form = dict(await request.form())
+        raw_form = await request.form()
+        form = dict(raw_form)
         action = form.get("action")
         back = f"/c/{chat_id}#m{msg_id}"
         conn, db_error = connect()
@@ -242,6 +243,18 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
                         raise ValueError("the attached file is missing")
                     lines = doc_import.apply(conn, prop["data"], source)
                     prop["status"], prop["result"] = "done", "Saved. " + " ".join(lines)
+                elif prop["kind"] == "statement":
+                    selected = set(raw_form.getlist("row"))
+                    if not selected:
+                        raise ValueError("tick at least one row, or dismiss the card")
+                    counts = statement_import.save(conn, prop["data"]["rows"], selected)
+                    for row in prop["data"]["rows"]:
+                        row["saved"] = row["id"] in selected
+                    prop["status"] = "done"
+                    prop["result"] = (f"Saved {counts['rent']} rent payment(s) and "
+                                      f"{counts['expense']} expense(s)"
+                                      + (f"; {counts['skipped']} were already recorded."
+                                         if counts["skipped"] else "."))
                 elif prop["kind"] == "job":
                     options = {k: ("on" if v is True else "" if v in (None, False) else str(v))
                                for k, v in prop["data"]["options"].items()}

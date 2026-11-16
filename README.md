@@ -2,9 +2,10 @@
 
 A private web app that helps run a small rental-property LLC:
 
-- **Chat** (home page): ask questions, attach receipts to record expenses, import new leases
-  and LLC documents, ask about your leases or local rental rules, and start jobs. Every change
-  waits for you to click a confirm card.
+- **Chat** (home page): ask questions, attach receipts to record expenses, import bank or card
+  statements to record rent and expenses, import new leases and LLC documents, ask about your
+  leases or local rental rules, and start jobs. Every change waits for you to click a confirm
+  card.
 - **Jobs**: `sync-email` imports rent and expense emails from Gmail (automatically on the
   1st, 11th and 21st), `research-rent` recommends next year's rent from comparable listings,
   `generate-lease` writes the yearly lease extension (.docx + .pdf), and `tax-report` builds the
@@ -230,6 +231,13 @@ The jobs need your property, tenants and current lease. You don't type them in: 
    ```
 
 4. Open **Memory** and add your standing rules (for example, which vendors are personal).
+5. To fill in past rent and expenses, attach a bank, card or Zelle/Venmo statement export
+   (CSV, PDF, OFX or QFX) and say "save the rent and expenses". The **import-statement**
+   skill lists the rental transactions in a table; untick anything you don't want and click
+   **Save ticked rows**. Rows already recorded (imported before, or the same amount recorded
+   by the email sync within 3 days) start unticked, and importing an overlapping statement
+   never adds a row twice. Mortgage payments are left out: only the interest is deductible,
+   so add the year's interest from your lender's Form 1098 as one `mortgage_interest` expense.
 
 Import LLC documents before leases, so each property is linked to its LLC. Re-importing a
 document updates its records instead of duplicating them. The same steps work for a second

@@ -97,4 +97,4 @@ def test_propose_document_import_records_a_card(tmp_path):
 def test_chat_loads_the_skill_plugin():
     assert (chat.PLUGIN_DIR / ".claude-plugin" / "plugin.json").is_file()
     assert (chat.PLUGIN_DIR / "skills" / "import-document" / "SKILL.md").is_file()
-    assert chat.SKILLS == ["rental:import-document"]
+    assert "rental:import-document" in chat.SKILLS

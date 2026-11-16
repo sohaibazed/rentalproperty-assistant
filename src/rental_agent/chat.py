@@ -6,7 +6,8 @@ Tools:
   stored in the reference_documents table;
 - WebSearch / WebFetch for questions like local rental rules;
 - the import-document skill (agent-plugin/skills/) and propose_document_import, for a new
-  lease or LLC document;
+  lease or LLC document; the import-statement skill and propose_statement_import, for rent and
+  expenses in a bank or card statement;
 - propose_expense / propose_job / propose_memory / propose_document_import, which only record
   a *proposal*. The web app
   shows each as a card; nothing is saved, run or remembered until the owner clicks.
@@ -36,7 +37,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from rental_agent import db, doc_import, memory, prompts, runner
+from rental_agent import db, doc_import, memory, prompts, runner, statement_import
 from rental_agent.config import Settings, data_dir
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
 
@@ -50,11 +51,11 @@ DEFAULT_MODEL = "claude-sonnet-5-5"
 # Skills for the chat live in a local plugin; .claude/skills links to the same files so
 # Claude Code in this repo uses them too.
 PLUGIN_DIR = Path(__file__).resolve().parents[2] / "agent-plugin"
-SKILLS = ["rental:import-document"]
+SKILLS = ["rental:import-document", "rental:import-statement"]
 
 IMAGE_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
                ".gif": "image/gif", ".webp": "image/webp"}
-TEXT_TYPES = {".txt", ".csv", ".md"}
+TEXT_TYPES = {".txt", ".csv", ".md", ".ofx", ".qfx"}  # OFX/QFX: bank exports
 UPLOAD_TYPES = set(IMAGE_TYPES) | TEXT_TYPES | {".pdf"}
 MAGIC = {".pdf": [b"%PDF"], ".png": [b"\x89PNG"], ".jpg": [b"\xff\xd8\xff"],
          ".jpeg": [b"\xff\xd8\xff"], ".gif": [b"GIF8"], ".webp": [b"RIFF"]}
@@ -66,14 +67,15 @@ NO_DOCUMENTS = ("The documents table doesn't exist. The owner needs to run "
 TOOL_LABELS = {"WebSearch": "Searching the web", "WebFetch": "Reading a web page",
                "mcp__rental__list_reference_documents": "Looking through your documents",
                "mcp__rental__read_reference_document": "Reading a document",
-               "Skill": "Following the import-document steps"}
+               "Skill": "Following the import steps"}
 
 
 def check_upload(name: str, data: bytes) -> str:
     """Return the lowercase extension if the file is an allowed, non-empty, plausible upload."""
     ext = Path(name).suffix.lower()
     if ext not in UPLOAD_TYPES:
-        raise ValueError(f"{name}: only images (JPG, PNG, GIF, WebP), PDF, TXT, CSV or MD files")
+        raise ValueError(f"{name}: only images (JPG, PNG, GIF, WebP), PDF, TXT, CSV, MD, "
+                         "OFX or QFX files")
     if not data:
         raise ValueError(f"{name} is empty")
     if len(data) > MAX_UPLOAD_BYTES:
@@ -268,6 +270,40 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
             return _err(f"Not proposed: {exc}")
         return propose("document", {**data, "attachment": attachment})
 
+    @tool("propose_statement_import", "Show the owner a table of rent payments and rental "
+          "expenses from an attached statement, to tick and save. Follow the import-statement "
+          "skill first. Does not save anything.", {
+              "type": "object",
+              "properties": {
+                  "attachment": {"type": "string",
+                                 "description": "path of the attached statement"},
+                  "statement_name": {"type": "string",
+                                     "description": "e.g. 'Checking, Jan to Nov 2026'"},
+                  "transactions": statement_import.TRANSACTIONS_SCHEMA,
+              },
+              "required": ["attachment", "statement_name", "transactions"]})
+    async def propose_statement_import(args):
+        attachment = args.get("attachment")
+        if attachment not in attachments:
+            return _err("Not proposed: attachment must be the path of a file attached to "
+                        "this message. Ask the owner to attach the statement again.")
+        with connect() as conn:
+            property_ids = {p["id"] for p in db.properties_list(conn)}
+            try:
+                rows = statement_import.validate(args.get("transactions") or [], property_ids,
+                                                 date.today())
+            except ValueError as exc:
+                return _err(f"Not proposed: {exc}")
+            rows = statement_import.mark_existing(conn, rows)
+        name = " ".join(str(args.get("statement_name") or "Statement").split())[:120]
+        result = propose("statement", {"name": name, "attachment": attachment, "rows": rows})
+        already = [r for r in rows if r["existing"]]
+        if already:
+            result["content"].append({"type": "text", "text":
+                f"{len(already)} row(s) look already recorded and are unticked: "
+                + "; ".join(f"{r['date']} ${r['amount']} ({r['existing']})" for r in already)})
+        return result
+
     @tool("propose_memory", "Show the owner a card to add one standing rule to memory.md.",
           {"type": "object", "properties": {"rule": {"type": "string"}}, "required": ["rule"]})
     async def propose_memory(args):
@@ -278,7 +314,8 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
 
     return [year_summary, list_rent_payments, list_expenses, list_leases, list_rent_research,
             list_properties, list_job_runs, list_reference_documents, read_reference_document,
-            propose_expense, propose_job, propose_document_import, propose_memory]
+            propose_expense, propose_job, propose_document_import, propose_statement_import,
+            propose_memory]
 
 
 def build_tools(settings: Settings, proposals: list[dict[str, Any]], attachments: set[str]):

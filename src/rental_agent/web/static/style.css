@@ -148,3 +148,9 @@ code { font-size: 13px; word-break: break-all; background: var(--subtle); paddin
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 8px 0 12px; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Statement-import card: a scrollable table of transactions to tick */
+.table-scroll { max-height: 420px; overflow: auto; margin: 8px 0 12px; border: 1px solid var(--line); border-radius: 8px; }
+.table-scroll table { margin: 0; }
+.table-scroll thead th { position: sticky; top: 0; background: var(--subtle); }
+.table-scroll td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
