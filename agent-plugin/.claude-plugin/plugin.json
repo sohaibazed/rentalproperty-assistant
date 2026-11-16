@@ -1,0 +1,5 @@
+{
+  "name": "rental",
+  "version": "1.0.0",
+  "description": "Skills for the rental agent web chat. The same skills are linked into .claude/skills for Claude Code in this repo."
+}

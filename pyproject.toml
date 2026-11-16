@@ -17,12 +17,12 @@ dependencies = [
     "cryptography>=50.0.2",
     "markdown>=3.11.3",
     "itsdangerous>=2.2.0",
+    "pypdf>=7.1.0",
 ]
 
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
-    "pypdf>=7.1.0",
     "pytest",
     "ruff",
 ]

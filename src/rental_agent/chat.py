@@ -5,7 +5,10 @@ Tools:
 - read-only access to the text of the owner's reference documents (leases, LLC papers, notes),
   stored in the reference_documents table;
 - WebSearch / WebFetch for questions like local rental rules;
-- propose_expense / propose_job / propose_memory, which only record a *proposal*. The web app
+- the import-document skill (agent-plugin/skills/) and propose_document_import, for a new
+  lease or LLC document;
+- propose_expense / propose_job / propose_memory / propose_document_import, which only record
+  a *proposal*. The web app
   shows each as a card; nothing is saved, run or remembered until the owner clicks.
 Attachments are sent to the model as content blocks; the agent has no file or shell tools.
 """
@@ -33,7 +36,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from rental_agent import db, memory, prompts, runner
+from rental_agent import db, doc_import, memory, prompts, runner
 from rental_agent.config import Settings, data_dir
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
 
@@ -43,6 +46,11 @@ MODELS = {
     "claude-haiku-5-5": "Haiku 5.5",
 }
 DEFAULT_MODEL = "claude-opus-5-5"
+
+# Skills for the chat live in a local plugin; .claude/skills links to the same files so
+# Claude Code in this repo uses them too.
+PLUGIN_DIR = Path(__file__).resolve().parents[2] / "agent-plugin"
+SKILLS = ["rental:import-document"]
 
 IMAGE_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
                ".gif": "image/gif", ".webp": "image/webp"}
@@ -57,7 +65,8 @@ NO_DOCUMENTS = ("The documents table isn't set up yet. The owner needs to run "
 
 TOOL_LABELS = {"WebSearch": "Searching the web", "WebFetch": "Reading a web page",
                "mcp__rental__list_reference_documents": "Looking through your documents",
-               "mcp__rental__read_reference_document": "Reading a document"}
+               "mcp__rental__read_reference_document": "Reading a document",
+               "Skill": "Following the import-document steps"}
 
 
 def check_upload(name: str, data: bytes) -> str:
@@ -240,6 +249,25 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
             return _err(f"Not proposed: {exc}")
         return propose("job", {"job": job, "options": {k: v for k, v in options.items()}})
 
+    @tool("propose_document_import", "Show the owner a card to save a new lease or LLC "
+          "document's facts (LLC, property, tenants, lease term) and its text. Follow the "
+          "import-document skill first. Does not save anything.",
+          {**doc_import.IMPORT_SCHEMA,
+           "properties": {**doc_import.IMPORT_SCHEMA["properties"],
+                          "attachment": {"type": "string",
+                                         "description": "path of the attached document"}},
+           "required": [*doc_import.IMPORT_SCHEMA["required"], "attachment"]})
+    async def propose_document_import(args):
+        attachment = args.get("attachment")
+        if attachment not in attachments:
+            return _err("Not proposed: attachment must be the path of a file attached to "
+                        "this message. Ask the owner to attach the document again.")
+        try:
+            data = doc_import.validate(args)
+        except ValueError as exc:
+            return _err(f"Not proposed: {exc}")
+        return propose("document", {**data, "attachment": attachment})
+
     @tool("propose_memory", "Show the owner a card to add one standing rule to memory.md.",
           {"type": "object", "properties": {"rule": {"type": "string"}}, "required": ["rule"]})
     async def propose_memory(args):
@@ -250,7 +278,7 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
 
     return [year_summary, list_rent_payments, list_expenses, list_leases, list_rent_research,
             list_properties, list_job_runs, list_reference_documents, read_reference_document,
-            propose_expense, propose_job, propose_memory]
+            propose_expense, propose_job, propose_document_import, propose_memory]
 
 
 def build_tools(settings: Settings, proposals: list[dict[str, Any]], attachments: set[str]):
@@ -318,10 +346,12 @@ async def run_turn(
         "model": model,
         "system_prompt": system_prompt(settings),
         "mcp_servers": {"rental": server},
-        "tools": ["WebSearch", "WebFetch"],
+        "tools": ["WebSearch", "WebFetch", "Skill"],   # `skills` limits Skill to SKILLS
         "allowed_tools": ["WebSearch", "WebFetch", *tool_names],
         "permission_mode": "dontAsk",
         "setting_sources": [],
+        "plugins": [{"type": "local", "path": str(PLUGIN_DIR)}],
+        "skills": SKILLS,
         "include_partial_messages": True,
         "max_turns": 25,
         "cwd": str(workdir),

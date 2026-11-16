@@ -4,7 +4,7 @@
 PY := uv run python -m rental_agent
 
 .PHONY: setup test lint gmail-auth sync-email sync-email-dry tax-report generate-lease research-rent \
-        reference-sql init-keys set-login-email up down logs
+        reference-sql import-document init-keys set-login-email up down logs
 
 setup:  ## Create .venv and install dependencies
 	uv sync
@@ -35,6 +35,10 @@ research-rent:  ## Rent recommendation from comps: make research-rent PROPERTY=1
 
 reference-sql:  ## Build reference/supabase-documents.sql from your lease and LLC documents
 	uv run python scripts/build_reference_sql.py
+
+import-document:  ## Preview a document import; APPLY=1 saves. FILE= and DATA= under artifacts/imports/
+	@test -n "$(FILE)" -a -n "$(DATA)" || { echo "Usage: make import-document FILE=artifacts/imports/x.pdf DATA=artifacts/imports/x.json [APPLY=1]"; exit 1; }
+	docker exec rental-agent python -m rental_agent import-document "/app/$(FILE)" --data "/app/$(DATA)" $(if $(APPLY),--apply)
 
 # --- Web UI in Docker ---------------------------------------------------------------------
 # The encryption key and UI password live in your macOS Keychain and reach the container as

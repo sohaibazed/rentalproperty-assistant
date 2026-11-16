@@ -8,25 +8,16 @@ reference/tenant-screening/ is never included. SSN-like numbers are redacted.
 Run with `make reference-sql`, then paste the output file into the Supabase SQL Editor.
 """
 
-import re
 import sys
 from pathlib import Path
 
-from pypdf import PdfReader
+from rental_agent.doc_import import pdf_text, redact
 
 ROOT = Path(__file__).resolve().parents[1] / "reference"
 OUT = ROOT / "supabase-documents.sql"
 EXCLUDED_DIR = "tenant-screening"
 PDF_DIRS = ("leases", "llc")
 QUOTE = "$doc$"
-
-# SSNs (123-45-6789), e.g. the responsible party on Form SS-4. EINs (12-3456789) and filing
-# numbers are kept: the chat needs them for tax and LLC questions.
-SENSITIVE = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
-
-
-def redact(text: str) -> str:
-    return SENSITIVE.sub("[REDACTED]", text)
 
 
 def category(rel: Path) -> str:
@@ -38,12 +29,6 @@ def md_title(text: str, rel: Path) -> str:
         if line.startswith("# "):
             return line[2:].strip()
     return rel.stem.replace("_", " ")
-
-
-def pdf_text(path: Path) -> tuple[str, int]:
-    reader = PdfReader(path)
-    pages = [" ".join((page.extract_text() or "").split()) for page in reader.pages]
-    return "\n\n".join(f"[page {i}]\n{text}" for i, text in enumerate(pages, 1)), len(pages)
 
 
 def collect(root: Path) -> list[dict]:

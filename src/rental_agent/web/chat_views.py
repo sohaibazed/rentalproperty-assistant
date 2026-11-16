@@ -12,7 +12,7 @@ import psycopg
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
-from rental_agent import chat, db, memory, runner
+from rental_agent import chat, db, doc_import, memory, runner
 from rental_agent.config import artifacts_dir, load_settings
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
 from rental_agent.web.jobs import JobManager
@@ -235,6 +235,13 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
                     memory.append_rule(rule)
                     prop["data"]["rule"] = rule
                     prop["status"], prop["result"] = "done", "Added to memory.md."
+                elif prop["kind"] == "document":
+                    source = (artifacts_dir() / prop["data"]["attachment"]).resolve()
+                    uploads = (artifacts_dir() / "chat-uploads").resolve()
+                    if not source.is_relative_to(uploads) or not source.is_file():
+                        raise ValueError("the attached file is missing")
+                    lines = doc_import.apply(conn, prop["data"], source)
+                    prop["status"], prop["result"] = "done", "Saved. " + " ".join(lines)
                 elif prop["kind"] == "job":
                     options = {k: ("on" if v is True else "" if v in (None, False) else str(v))
                                for k, v in prop["data"]["options"].items()}

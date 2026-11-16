@@ -35,6 +35,33 @@
         <button name="action" value="dismiss" class="secondary">Dismiss</button>
       </form>
     {% endif %}
+  {% elif p.kind == "document" %}
+    <h4>{{ "Document to import" if p.status == "pending" else "Document" }}: {{ p.data.title }}</h4>
+    <p class="small muted">{{ p.data.doc_type.replace("_", " ") }} · {{ p.data.attachment.split("/")[-1] }}</p>
+    {% if p.status == "pending" %}
+      {% set llc = p.data.llc %}{% set lease = p.data.lease %}
+      <dl class="facts small">
+        {% if llc %}
+          <dt>LLC</dt><dd>{{ llc.name }} ({{ llc.state }}){% if llc.file_number %} · file {{ llc.file_number }}{% endif %}{% if llc.ein %} · EIN {{ llc.ein }}{% endif %}{% if llc.formed_on %} · formed {{ llc.formed_on }}{% endif %}</dd>
+          {% if llc.members %}<dt>Members</dt><dd>{% for m in llc.members %}{{ m.name }}{% if m.percent is not none %} {{ "%g" % m.percent }}%{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+          {% if llc.management or llc.managers %}<dt>Managed by</dt><dd>{{ llc.management or "" }}{% if llc.managers %}: {{ llc.managers | join(", ") }}{% endif %}</dd>{% endif %}
+          {% if llc.registered_agent %}<dt>Registered agent</dt><dd>{{ llc.registered_agent }}{% if llc.registered_office %}, {{ llc.registered_office }}{% endif %}</dd>{% endif %}
+        {% endif %}
+        {% if lease %}
+          <dt>Property</dt><dd>{{ lease.address }}{% if lease.unit %} #{{ lease.unit }}{% endif %}, {{ lease.city }}, {{ lease.state }} {{ lease.zip }}{% if p.data.owner_llc %} · owned by {{ p.data.owner_llc }}{% endif %}</dd>
+          <dt>Landlords</dt><dd>{{ lease.landlord_names | join(", ") }}</dd>
+          <dt>Tenants</dt><dd>{{ lease.tenant_names | join(", ") }}</dd>
+          <dt>Term</dt><dd>{{ lease.start_date }} to {{ lease.end_date }} · {{ "$%.2f" % (lease.monthly_rent | float) }}/month{% if lease.deposit %} · deposit {{ "$%.2f" % (lease.deposit | float) }}{% endif %}</dd>
+          {% if lease.original_lease_date %}<dt>Extends lease of</dt><dd>{{ lease.original_lease_date }}</dd>{% endif %}
+          {% if lease.other_terms %}<dt>Other terms</dt><dd>{{ lease.other_terms }}</dd>{% endif %}
+        {% endif %}
+        <dt>Text</dt><dd>Saved for questions in the chat.</dd>
+      </dl>
+      <form method="post" action="{{ action }}" class="row">
+        <button name="action" value="confirm">Save</button>
+        <button name="action" value="dismiss" class="secondary">Dismiss</button>
+      </form>
+    {% endif %}
   {% elif p.kind == "memory" %}
     <h4>Add to memory</h4>
     {% if p.status == "pending" %}

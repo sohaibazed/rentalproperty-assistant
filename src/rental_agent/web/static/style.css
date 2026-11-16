@@ -143,3 +143,8 @@ code { font-size: 13px; word-break: break-all; background: var(--subtle); paddin
 .login form { gap: 6px; }
 .login input { width: 100%; margin-bottom: 8px; }
 .login button { width: 100%; margin-top: 6px; padding: 10px 16px; }
+
+/* Document-import card: label / value pairs */
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 8px 0 12px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }

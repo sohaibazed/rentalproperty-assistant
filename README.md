@@ -149,7 +149,28 @@ redacted.
 3. Paste that file into the SQL Editor and click **Run**. Re-run steps 2-3 whenever the
    documents change.
 
-### 3.8 Good to know
+### 3.8 Importing new leases and LLC documents
+
+Run [`supabase/migrations/0003_document_import.sql`](supabase/migrations/0003_document_import.sql)
+once in the SQL Editor. It adds an `llcs` table, links each property to its LLC, and lets the
+app save imported documents.
+
+After that, the **import-document** skill handles each new lease, lease extension, certificate
+of formation, operating agreement or EIN letter, for this property or a new one:
+
+- **In the chat:** attach the PDF and say "import this". Claude reads it and shows a card with
+  the LLC, property, tenants and lease term it found. Nothing is saved until you click **Save**.
+  Import LLC documents before the leases of the properties the LLC owns.
+- **In Claude Code** (in this folder, with the app running): ask it to import the document.
+  It previews with `make import-document FILE=... DATA=...` and saves with `APPLY=1` only after
+  you confirm.
+
+Re-importing the same document updates the records instead of duplicating them. A new
+property gets only what a lease states; add beds, baths and square feet in Supabase so rent
+research works. The skill's instructions are in
+[`agent-plugin/skills/import-document/SKILL.md`](agent-plugin/skills/import-document/SKILL.md).
+
+### 3.9 Good to know
 
 - **Pausing:** free Supabase projects pause after about a week without activity. The app pings
   the database once a day while it's running, so keep it running (Docker Desktop open), or

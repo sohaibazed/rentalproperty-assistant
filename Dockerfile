@@ -21,6 +21,7 @@ COPY src ./src
 COPY templates ./templates
 COPY prompts ./prompts
 COPY config ./config
+COPY agent-plugin ./agent-plugin
 RUN uv sync --frozen --no-dev
 
 RUN useradd --create-home --uid 1000 agent \

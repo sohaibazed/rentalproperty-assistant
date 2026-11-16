@@ -2,13 +2,20 @@
 
 import argparse
 import asyncio
+import json
 import logging
 import sys
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
-from rental_agent import db, gmail, runner
-from rental_agent.config import gmail_client_secrets_path, gmail_token_path, load_settings
+from rental_agent import db, doc_import, gmail, runner
+from rental_agent.config import (
+    env_or_file,
+    gmail_client_secrets_path,
+    gmail_token_path,
+    load_settings,
+)
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
 
 
@@ -36,6 +43,13 @@ def main(argv: list[str] | None = None) -> int:
     add.add_argument("--property-id", type=int, help="omit for an LLC-wide expense")
     add.add_argument("--receipt", help="path to a receipt file, relative to artifacts/")
 
+    imp = sub.add_parser("import-document",
+                         help="save a lease or LLC document's facts (see the import-document skill)")
+    imp.add_argument("file", type=Path, help="the document (PDF, MD or TXT)")
+    imp.add_argument("--data", type=Path, required=True, help="JSON facts extracted from it")
+    imp.add_argument("--apply", action="store_true",
+                     help="save; without it, only preview what would change")
+
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -44,7 +58,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Saved Gmail token to {gmail_token_path()}")
         return 0
 
-    settings = load_settings()
+    # Inside the container, the database URL and keys live in the web app's encrypted store.
+    secrets = None
+    if env_or_file("RENTAL_SECRET_KEY"):
+        from rental_agent.web.secrets import SecretStore
+        secrets = SecretStore.from_env().load()
+    settings = load_settings(secrets)
+
+    if args.command == "import-document":
+        return _import_document(settings.db_url, args.file, args.data, args.apply)
 
     if args.command in runner.JOBS:
         try:
@@ -78,6 +100,33 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     return 2
+
+
+def _import_document(db_url: str, file: Path, data_path: Path, apply: bool) -> int:
+    if not file.is_file():
+        print(f"No such file: {file}", file=sys.stderr)
+        return 1
+    try:
+        data = doc_import.validate(json.loads(data_path.read_text()))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"Invalid facts in {data_path}: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(data, indent=2))
+    with db.connect(db_url) as conn:
+        try:
+            lines = doc_import.apply(conn, data, file)
+        except ValueError as exc:
+            conn.rollback()
+            print(f"Not saved: {exc}", file=sys.stderr)
+            return 1
+        if apply:
+            conn.commit()
+        else:
+            conn.rollback()  # preview: run the same writes, then undo them
+    print("\nSaved:" if apply else "\nPreview (nothing saved; run again with --apply):")
+    for line in lines:
+        print(f"- {line}")
+    return 0
 
 
 if __name__ == "__main__":
