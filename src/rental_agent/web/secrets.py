@@ -31,7 +31,8 @@ SECRETS: list[SecretSpec] = [
     SecretSpec("CLAUDE_CODE_OAUTH_TOKEN", "Claude Code OAuth token",
                "Run `claude setup-token` on your Mac to get one. Used if no API key is set."),
     SecretSpec("GMAIL_CLIENT_CONFIG", "Gmail OAuth client (JSON)",
-               "Google Cloud > APIs & Services > Credentials > OAuth client ID (Desktop app) > "
+               "Google Cloud > APIs & Services > Credentials > OAuth client ID (Web application, "
+               "with the redirect URI shown in the Gmail box below) > "
                "Download JSON, then paste it here.", multiline=True),
 ]
 # Written by the "Connect Gmail" flow, not typed in.
