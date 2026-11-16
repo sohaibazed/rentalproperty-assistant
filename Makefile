@@ -4,7 +4,7 @@
 PY := uv run python -m rental_agent
 
 .PHONY: setup test lint gmail-auth sync-email sync-email-dry tax-report generate-lease research-rent \
-        init-keys set-login-email up down logs
+        reference-sql init-keys set-login-email up down logs
 
 setup:  ## Create .venv and install dependencies
 	uv sync
@@ -32,6 +32,9 @@ generate-lease:  ## Yearly lease extension: make generate-lease PROPERTY=1 RENT=
 
 research-rent:  ## Rent recommendation from comps: make research-rent PROPERTY=1 [YEAR=2027] [DRY=1]
 	$(PY) research-rent --property-id $(PROPERTY) $(if $(YEAR),--year $(YEAR)) $(if $(DRY),--dry-run)
+
+reference-sql:  ## Build reference/supabase-documents.sql from your lease and LLC documents
+	uv run python scripts/build_reference_sql.py
 
 # --- Web UI in Docker ---------------------------------------------------------------------
 # The encryption key and UI password live in your macOS Keychain and reach the container as

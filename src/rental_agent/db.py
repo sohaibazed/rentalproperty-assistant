@@ -437,6 +437,17 @@ def properties_list(conn: psycopg.Connection) -> list[dict]:
                                   baths, sqft from properties order by id""")
 
 
+def reference_documents_list(conn: psycopg.Connection) -> list[dict]:
+    return _dicts(conn, """select path, category, title, pages, length(content) as chars
+                           from reference_documents order by category, path""")
+
+
+def reference_document(conn: psycopg.Connection, path: str) -> dict | None:
+    rows = _dicts(conn, """select path, title, pages, content from reference_documents
+                           where path = %s""", (path,))
+    return rows[0] if rows else None
+
+
 # --- Chat history -------------------------------------------------------------------------
 
 

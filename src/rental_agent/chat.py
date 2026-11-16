@@ -2,6 +2,8 @@
 
 Tools:
 - read-only data lookups (rent, expenses, leases, research, job runs, properties);
+- read-only access to the text of the owner's reference documents (leases, LLC papers, notes),
+  stored in the reference_documents table;
 - WebSearch / WebFetch for questions like local rental rules;
 - propose_expense / propose_job / propose_memory, which only record a *proposal*. The web app
   shows each as a card; nothing is saved, run or remembered until the owner clicks.
@@ -18,6 +20,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+import psycopg
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -49,8 +52,12 @@ MAGIC = {".pdf": [b"%PDF"], ".png": [b"\x89PNG"], ".jpg": [b"\xff\xd8\xff"],
          ".jpeg": [b"\xff\xd8\xff"], ".gif": [b"GIF8"], ".webp": [b"RIFF"]}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_EXPENSE = Decimal(100000)
+NO_DOCUMENTS = ("The documents table isn't set up yet. The owner needs to run "
+                "0002_reference_documents.sql and reference/supabase-documents.sql in Supabase.")
 
-TOOL_LABELS = {"WebSearch": "Searching the web", "WebFetch": "Reading a web page"}
+TOOL_LABELS = {"WebSearch": "Searching the web", "WebFetch": "Reading a web page",
+               "mcp__rental__list_reference_documents": "Looking through your documents",
+               "mcp__rental__read_reference_document": "Reading a document"}
 
 
 def check_upload(name: str, data: bytes) -> str:
@@ -166,6 +173,31 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
         with connect() as conn:
             return _rows(db.job_runs(conn, limit=20))
 
+    @tool("list_reference_documents", "The owner's stored documents (signed leases and lease "
+          "extensions, LLC formation, operating agreement, EIN letters, property notes) with "
+          "path, title and length.", none_schema)
+    async def list_reference_documents(args):
+        try:
+            with connect() as conn:
+                return _rows(db.reference_documents_list(conn))
+        except psycopg.errors.UndefinedTable:
+            return _err(NO_DOCUMENTS)
+
+    @tool("read_reference_document", "Full text of one stored document, by path from "
+          "list_reference_documents. PDF text is split by [page N] markers.",
+          {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})
+    async def read_reference_document(args):
+        try:
+            with connect() as conn:
+                doc = db.reference_document(conn, str(args.get("path", "")))
+        except psycopg.errors.UndefinedTable:
+            return _err(NO_DOCUMENTS)
+        if doc is None:
+            return _err("No document with that path; call list_reference_documents.")
+        return {"content": [{"type": "text", "text":
+                f"<document path=\"{doc['path']}\" title=\"{doc['title']}\">\n"
+                f"{doc['content']}\n</document>"}]}
+
     @tool("propose_expense", "Show the owner an expense card to confirm (e.g. from a receipt). "
           "Does not save anything.", {
               "type": "object",
@@ -217,7 +249,8 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
         return propose("memory", {"rule": rule})
 
     return [year_summary, list_rent_payments, list_expenses, list_leases, list_rent_research,
-            list_properties, list_job_runs, propose_expense, propose_job, propose_memory]
+            list_properties, list_job_runs, list_reference_documents, read_reference_document,
+            propose_expense, propose_job, propose_memory]
 
 
 def build_tools(settings: Settings, proposals: list[dict[str, Any]], attachments: set[str]):

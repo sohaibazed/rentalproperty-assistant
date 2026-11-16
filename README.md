@@ -136,7 +136,20 @@ insert into lease_tenants (lease_id, tenant_id) values (1, 1), (1, 2);
 
 Check the result on the **Leases** page in the app.
 
-### 3.7 Good to know
+### 3.7 Load your documents (optional)
+
+The chat can answer questions from your leases, LLC papers and the `.md` notes in `reference/`
+once their text is in Supabase. `reference/tenant-screening/` is never included, and SSNs are
+redacted.
+
+1. In the SQL Editor, run [`supabase/migrations/0002_reference_documents.sql`](supabase/migrations/0002_reference_documents.sql).
+2. On your Mac, run `make reference-sql`. It writes `reference/supabase-documents.sql`.
+   For a scanned PDF with no text, put a transcription next to it as a `.md` file with the
+   same name; the `.md` is used instead of the PDF.
+3. Paste that file into the SQL Editor and click **Run**. Re-run steps 2-3 whenever the
+   documents change.
+
+### 3.8 Good to know
 
 - **Pausing:** free Supabase projects pause after about a week without activity. The app pings
   the database once a day while it's running, so keep it running (Docker Desktop open), or
