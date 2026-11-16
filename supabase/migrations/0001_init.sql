@@ -1,0 +1,122 @@
+-- Rental agent schema: properties, leases, rent, expenses, research, and email-ingest bookkeeping.
+-- Idempotent where Postgres allows it, so re-running is safe.
+
+-- Schedule E (Form 1040) expense lines, plus 'other'.
+do $$ begin
+  create type schedule_e_category as enum (
+    'advertising', 'auto_travel', 'cleaning_maintenance', 'commissions', 'insurance',
+    'legal_professional', 'management_fees', 'mortgage_interest', 'other_interest',
+    'repairs', 'supplies', 'taxes', 'utilities', 'depreciation', 'other'
+  );
+exception when duplicate_object then null; end $$;
+
+create table if not exists properties (
+  id             bigint generated always as identity primary key,
+  address        text not null,
+  unit           text,
+  beds           numeric(3,1),
+  baths          numeric(3,1),
+  sqft           integer,
+  purchase_date  date,
+  cost_basis     numeric(12,2),           -- for depreciation
+  created_at     timestamptz not null default now(),
+  unique (address, unit)
+);
+
+create table if not exists tenants (
+  id          bigint generated always as identity primary key,
+  full_name   text not null,
+  email       text,
+  phone       text,
+  created_at  timestamptz not null default now()
+);
+
+create table if not exists leases (
+  id            bigint generated always as identity primary key,
+  property_id   bigint not null references properties(id),
+  tenant_id     bigint not null references tenants(id),
+  start_date    date not null,
+  end_date      date not null check (end_date > start_date),
+  monthly_rent  numeric(10,2) not null check (monthly_rent > 0),
+  deposit       numeric(10,2) check (deposit >= 0),
+  docx_path     text,
+  pdf_path      text,
+  created_at    timestamptz not null default now()
+);
+
+create table if not exists rent_payments (
+  id                 bigint generated always as identity primary key,
+  lease_id           bigint references leases(id),     -- null until matched
+  amount             numeric(10,2) not null check (amount > 0),
+  paid_on            date not null,
+  payer              text,
+  source_message_id  text unique,                      -- Gmail message id; null for manual entries
+  needs_review       boolean not null default false,
+  created_at         timestamptz not null default now()
+);
+
+create table if not exists expenses (
+  id                   bigint generated always as identity primary key,
+  property_id          bigint references properties(id),  -- null = LLC-wide expense
+  amount               numeric(10,2) not null check (amount > 0),
+  spent_on             date not null,
+  vendor               text,
+  description          text,
+  schedule_e_category  schedule_e_category not null,
+  receipt_path         text,
+  source_message_id    text unique,
+  needs_review         boolean not null default false,
+  created_at           timestamptz not null default now()
+);
+
+create table if not exists rent_research (
+  id                bigint generated always as identity primary key,
+  property_id       bigint not null references properties(id),
+  year              integer not null,
+  comps             jsonb not null,
+  recommended_rent  numeric(10,2),
+  rationale         text,
+  report_path       text,
+  created_at        timestamptz not null default now(),
+  unique (property_id, year)
+);
+
+-- One row per Gmail message looked at, so syncs can be re-run safely.
+create table if not exists email_ingest_log (
+  message_id    text primary key,
+  processed_at  timestamptz not null default now(),
+  outcome       text not null check (outcome in ('rent', 'expense', 'ignored'))
+);
+
+-- One row per sync run; the next run searches from the last successful run's start (minus overlap).
+create table if not exists sync_runs (
+  id           bigint generated always as identity primary key,
+  started_at   timestamptz not null default now(),
+  finished_at  timestamptz,
+  status       text not null default 'running' check (status in ('running', 'success', 'failed')),
+  inserted     integer not null default 0
+);
+
+-- Least-privilege role for the app. Set its password out-of-band, never in this file:
+--   alter role rental_agent with login password '<from your secrets manager>';
+do $$ begin
+  create role rental_agent nologin;
+exception when duplicate_object then null; end $$;
+
+grant usage on schema public to rental_agent;
+grant select, insert on all tables in schema public to rental_agent;
+grant update on leases, rent_payments, expenses, rent_research, sync_runs to rental_agent;  -- no DELETE anywhere
+grant usage on type schedule_e_category to rental_agent;
+
+-- RLS on every table. Only rental_agent gets a policy, so Supabase's anon/authenticated
+-- API roles see nothing.
+do $$
+declare t text;
+begin
+  foreach t in array array['properties','tenants','leases','rent_payments','expenses',
+                           'rent_research','email_ingest_log','sync_runs'] loop
+    execute format('alter table %I enable row level security', t);
+    execute format('drop policy if exists rental_agent_all on %I', t);
+    execute format('create policy rental_agent_all on %I to rental_agent using (true) with check (true)', t);
+  end loop;
+end $$;

@@ -1,0 +1,16 @@
+# Which Gmail messages sync-email looks at. Not secret — safe to commit.
+# Replace the placeholder senders with the real ones from your inbox.
+
+[rent]
+# Senders of rent-deposit notices (your bank, Zelle, Venmo, etc.)
+senders = ["alerts@yourbank.example"]
+
+[expenses]
+# Known vendors that email receipts or invoices
+senders = [
+  # "orders@homedepot.com",
+  # "billing@your-insurer.example",
+]
+# Subject keywords that catch expense emails from senders not listed above.
+# Broad keywords pull in more mail; the model marks non-rental mail as "ignore".
+subject_keywords = ["receipt", "invoice", "property tax", "payment confirmation"]

@@ -1,0 +1,17 @@
+# Secrets — never commit
+.env
+*.token.json
+credentials*.json
+
+# PII: source documents and generated artifacts
+reference/*
+!reference/.gitkeep
+artifacts/*
+!artifacts/.gitkeep
+
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
