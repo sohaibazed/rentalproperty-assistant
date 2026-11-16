@@ -62,7 +62,7 @@ def test_bad_term_and_rent_rejected():
 
 def test_warnings():
     early = lease_warnings(CURRENT, D(2600), date(2026, 10, 1))
-    assert "December 1, 2026" in early[0]
+    assert "November 16, 2026" in early[0]
     assert "+4.0%" in early[1]
     late = lease_warnings(CURRENT, D(2600), date(2026, 12, 15))
     assert "has passed" in late[0]

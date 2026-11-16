@@ -22,9 +22,9 @@ from rental_agent.config import Settings
 
 TEMPLATE = Path(__file__).resolve().parents[3] / "templates" / "lease_extension_template.docx"
 
-# The current lease (TXR-2001, paragraph 4A box 1) auto-renews month-to-month unless written
-# notice is given at least 30 days before the expiration date.
-NOTICE_DAYS = 30
+# The current lease (TXR-2001, paragraph 4A box 2) auto-renews month-to-month unless written
+# notice is given at least 45 days before the expiration date.
+NOTICE_DAYS = 45
 
 
 @dataclass

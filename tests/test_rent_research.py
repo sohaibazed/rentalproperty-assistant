@@ -62,7 +62,7 @@ def test_report_contents():
     assert "**Recommended rent:** $2,600.00/month" in md
     assert "change $100.00 (+4.0%)" in md
     assert "25.0 months to earn back one vacant month" in md
-    assert "December 1, 2026" in md
+    assert "November 16, 2026" in md
     assert md.count("[link](https://example.com/x)") == 5
 
 
