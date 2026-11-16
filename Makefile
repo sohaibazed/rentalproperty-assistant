@@ -3,7 +3,7 @@
 
 PY := uv run python -m rental_agent
 
-.PHONY: setup test lint gmail-auth sync-email sync-email-dry
+.PHONY: setup test lint gmail-auth sync-email sync-email-dry tax-report
 
 setup:  ## Create .venv and install dependencies
 	uv sync
@@ -22,3 +22,6 @@ sync-email:  ## Import rent/expense emails since the last successful run
 
 sync-email-dry:  ## Show what sync-email would import, without writing anything
 	$(PY) sync-email --dry-run
+
+tax-report:  ## Year-end Schedule E summary; override with YEAR=2026
+	$(PY) tax-report $(if $(YEAR),--year $(YEAR))

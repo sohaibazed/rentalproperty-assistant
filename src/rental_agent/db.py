@@ -116,3 +116,73 @@ def log_ingested(conn: psycopg.Connection, message_id: str, outcome: str) -> Non
         "on conflict (message_id) do nothing",
         (message_id, outcome),
     )
+
+
+# --- Year-end reporting -------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RentRow:
+    id: int
+    property_id: int | None       # None when the payment isn't matched to a lease
+    lease_id: int | None
+    amount: Decimal
+    paid_on: date
+    payer: str | None
+    needs_review: bool
+
+
+@dataclass(frozen=True)
+class ExpenseRow:
+    id: int
+    property_id: int | None       # None = LLC-wide
+    amount: Decimal
+    spent_on: date
+    vendor: str | None
+    description: str | None
+    category: str
+    receipt_path: str | None
+    needs_review: bool
+
+
+@dataclass(frozen=True)
+class LeaseRow:
+    id: int
+    property_id: int
+    start_date: date
+    end_date: date
+    monthly_rent: Decimal
+
+
+def rent_for_year(conn: psycopg.Connection, year: int) -> list[RentRow]:
+    rows = conn.execute(
+        """select r.id, l.property_id, r.lease_id, r.amount, r.paid_on, r.payer, r.needs_review
+           from rent_payments r left join leases l on l.id = r.lease_id
+           where extract(year from r.paid_on) = %s
+           order by r.paid_on, r.id""",
+        (year,),
+    ).fetchall()
+    return [RentRow(*r) for r in rows]
+
+
+def expenses_for_year(conn: psycopg.Connection, year: int) -> list[ExpenseRow]:
+    rows = conn.execute(
+        """select id, property_id, amount, spent_on, vendor, description,
+                  schedule_e_category::text, receipt_path, needs_review
+           from expenses
+           where extract(year from spent_on) = %s
+           order by spent_on, id""",
+        (year,),
+    ).fetchall()
+    return [ExpenseRow(*r) for r in rows]
+
+
+def leases_active_in_year(conn: psycopg.Connection, year: int) -> list[LeaseRow]:
+    rows = conn.execute(
+        """select id, property_id, start_date, end_date, monthly_rent
+           from leases
+           where start_date <= make_date(%s, 12, 31) and end_date >= make_date(%s, 1, 1)
+           order by property_id, start_date""",
+        (year, year),
+    ).fetchall()
+    return [LeaseRow(*r) for r in rows]
