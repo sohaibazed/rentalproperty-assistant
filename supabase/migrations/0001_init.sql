@@ -19,6 +19,7 @@ create table if not exists properties (
   state          text not null default 'TX',
   zip            text,
   landlord_names text[],                  -- names as they appear on leases
+  property_type  text,                    -- e.g. 'single-family house', 'townhome'
   beds           numeric(3,1),
   baths          numeric(3,1),
   sqft           integer,

@@ -280,3 +280,51 @@ def insert_lease_extension(
             "insert into lease_tenants (lease_id, tenant_id) values (%s, %s)", (lease_id, tenant_id)
         )
     return lease_id
+
+
+# --- Rent research ------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PropertySize:
+    property_type: str | None
+    beds: Decimal | None
+    baths: Decimal | None
+    sqft: int | None
+
+
+def property_size(conn: psycopg.Connection, property_id: int) -> PropertySize | None:
+    row = conn.execute(
+        "select property_type, beds, baths, sqft from properties where id = %s", (property_id,)
+    ).fetchone()
+    return PropertySize(*row) if row else None
+
+
+def rent_research_history(conn: psycopg.Connection, property_id: int) -> list[tuple[int, Decimal]]:
+    rows = conn.execute(
+        """select year, recommended_rent from rent_research
+           where property_id = %s and recommended_rent is not null order by year""",
+        (property_id,),
+    ).fetchall()
+    return [(r[0], r[1]) for r in rows]
+
+
+def upsert_rent_research(
+    conn: psycopg.Connection,
+    *,
+    property_id: int,
+    year: int,
+    comps: str,               # JSON text
+    recommended_rent: Decimal,
+    rationale: str,
+    report_path: str,
+) -> None:
+    conn.execute(
+        """insert into rent_research (property_id, year, comps, recommended_rent, rationale, report_path)
+           values (%s, %s, %s::jsonb, %s, %s, %s)
+           on conflict (property_id, year) do update set
+             comps = excluded.comps, recommended_rent = excluded.recommended_rent,
+             rationale = excluded.rationale, report_path = excluded.report_path,
+             created_at = now()""",
+        (property_id, year, comps, recommended_rent, rationale, report_path),
+    )

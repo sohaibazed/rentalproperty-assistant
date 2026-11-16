@@ -10,7 +10,7 @@ from decimal import Decimal
 from rental_agent import db, gmail
 from rental_agent.config import load_settings
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
-from rental_agent.jobs import email_sync, lease, tax_report
+from rental_agent.jobs import email_sync, lease, rent_research, tax_report
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -44,6 +44,12 @@ def main(argv: list[str] | None = None) -> int:
     gen.add_argument("--other-terms", help='e.g. "Tenant pays water."; default: None.')
     gen.add_argument("--dry-run", action="store_true",
                      help="write the documents but don't record the new lease term")
+
+    research = sub.add_parser("research-rent", help="recommend next year's rent from comps")
+    research.add_argument("--property-id", type=int, required=True)
+    research.add_argument("--year", type=int, help="default: year the next lease term starts")
+    research.add_argument("--dry-run", action="store_true",
+                          help="write the report but don't save the recommendation")
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -93,6 +99,18 @@ def main(argv: list[str] | None = None) -> int:
             print("Dry run: lease term not recorded.")
         else:
             print(f"Recorded lease term id {result.lease_id}.")
+        return 0
+
+    if args.command == "research-rent":
+        result, report = asyncio.run(rent_research.run(
+            settings, property_id=args.property_id, year=args.year, dry_run=args.dry_run))
+        print(f"Wrote {report}")
+        print(f"Recommended {result.recommended} (range {result.range_low}-{result.range_high}); "
+              f"{len(result.comps)} comps, median {result.median}")
+        for flag in result.flags:
+            print(f"- CHECK: {flag}")
+        print("Dry run: recommendation not saved." if args.dry_run else
+              "Saved; generate-lease will use this rent by default.")
         return 0
 
     if args.command == "tax-report":
