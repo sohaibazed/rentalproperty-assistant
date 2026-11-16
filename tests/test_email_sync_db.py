@@ -1,6 +1,6 @@
 """End-to-end sync against a real Postgres, as the restricted rental_agent role.
 
-Needs TEST_DATABASE_URL (a rental_agent login on a database with 0001_init.sql applied)
+Needs TEST_DATABASE_URL (a rental_agent login on a database with supabase/schema.sql applied)
 and TEST_ADMIN_DATABASE_URL (to seed properties/leases, which the app never inserts).
 """
 

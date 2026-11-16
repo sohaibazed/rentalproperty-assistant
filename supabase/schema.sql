@@ -1,5 +1,10 @@
--- Rental agent schema: properties, leases, rent, expenses, research, and email-ingest bookkeeping.
--- Idempotent where Postgres allows it, so re-running is safe.
+-- Rental Agent database schema. Run this whole file once in the Supabase SQL Editor
+-- (see README section 3). It is safe to run again: it skips anything that already exists.
+--
+-- Tables: LLCs, properties, tenants, leases, rent payments, expenses, rent research, the owner's
+-- documents, email-sync and job bookkeeping, and chat history. The app logs in as the
+-- restricted role rental_agent (created at the end), which can read, add and update rows but
+-- never delete them.
 
 -- Schedule E (Form 1040) expense lines, plus 'other'.
 do $$ begin
@@ -9,6 +14,26 @@ do $$ begin
     'repairs', 'supplies', 'taxes', 'utilities', 'depreciation', 'other'
   );
 exception when duplicate_object then null; end $$;
+
+-- LLCs that own the properties. Filled by the import-document skill from the certificate of
+-- formation, operating agreement and EIN letter.
+create table if not exists llcs (
+  id                 bigint generated always as identity primary key,
+  name               text not null,
+  state              text not null default 'TX',
+  file_number        text,                    -- Secretary of State filing number
+  ein                text check (ein ~ '^\d{2}-\d{7}$'),
+  formed_on          date,
+  management         text check (management in ('managers', 'members')),
+  members            jsonb not null default '[]',   -- [{"name": "...", "percent": 50}]
+  managers           text[] not null default '{}',
+  registered_agent   text,
+  registered_office  text,
+  mailing_address    text,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+create unique index if not exists llcs_name_key on llcs (lower(name));
 
 create table if not exists properties (
   id             bigint generated always as identity primary key,
@@ -25,6 +50,7 @@ create table if not exists properties (
   sqft           integer,
   purchase_date  date,
   cost_basis     numeric(12,2),           -- for depreciation
+  llc_id         bigint references llcs(id),  -- the LLC that owns it
   created_at     timestamptz not null default now(),
   unique (address, unit)
 );
@@ -127,7 +153,7 @@ create table if not exists job_runs (
 );
 
 -- Chat history. Proposals are actions the assistant suggested (save an expense, run a job,
--- add a memory rule); they only take effect when the owner clicks to confirm.
+-- import a document, add a memory rule); they only take effect when the owner clicks to confirm.
 create table if not exists chats (
   id              bigint generated always as identity primary key,
   title           text not null,
@@ -149,27 +175,49 @@ create table if not exists chat_messages (
 );
 create index if not exists chat_messages_chat_id on chat_messages (chat_id, id);
 
--- Least-privilege role for the app. Set its password out-of-band, never in this file:
---   alter role rental_agent with login password '<from your secrets manager>';
+-- Text of the owner's lease and LLC documents, so the chat can answer questions from them.
+-- Written by the import-document skill (and optionally `make reference-sql`).
+create table if not exists reference_documents (
+  id          bigint generated always as identity primary key,
+  path        text not null unique,          -- e.g. 'imports/2027_lease.pdf'
+  category    text not null check (category in ('lease', 'llc', 'notes')),
+  title       text not null,
+  pages       integer,                       -- PDF page count; null for markdown
+  content     text not null,
+  updated_at  timestamptz not null default now()
+);
+
+-- Least-privilege role for the app. Give it a password separately, never in this file
+-- (README section 3.3):
+--   alter role rental_agent with login password '...';
 do $$ begin
   create role rental_agent nologin;
 exception when duplicate_object then null; end $$;
 
 grant usage on schema public to rental_agent;
-grant select, insert on all tables in schema public to rental_agent;
-grant update on leases, rent_payments, expenses, rent_research, sync_runs, job_runs,
-  chats, chat_messages to rental_agent;  -- no DELETE anywhere
 grant usage on type schedule_e_category to rental_agent;
+grant select, insert on
+  llcs, properties, tenants, leases, lease_tenants, rent_payments, expenses, rent_research,
+  email_ingest_log, sync_runs, job_runs, chats, chat_messages, reference_documents
+  to rental_agent;
+grant update on
+  llcs, properties, leases, rent_payments, expenses, rent_research, sync_runs, job_runs, chats,
+  chat_messages, reference_documents
+  to rental_agent;  -- no DELETE anywhere
 
--- RLS on every table. Only rental_agent gets a policy, so Supabase's anon/authenticated
--- API roles see nothing.
+-- Row-level security on every table. Only rental_agent gets a policy, so Supabase's public
+-- API roles (anon, authenticated) see nothing.
 do $$
 declare t text;
 begin
-  foreach t in array array['properties','tenants','leases','lease_tenants','rent_payments','expenses',
-                           'rent_research','email_ingest_log','sync_runs','job_runs','chats','chat_messages'] loop
+  foreach t in array array[
+    'llcs', 'properties', 'tenants', 'leases', 'lease_tenants', 'rent_payments', 'expenses',
+    'rent_research', 'email_ingest_log', 'sync_runs', 'job_runs', 'chats', 'chat_messages',
+    'reference_documents'
+  ] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists rental_agent_all on %I', t);
-    execute format('create policy rental_agent_all on %I to rental_agent using (true) with check (true)', t);
+    execute format('create policy rental_agent_all on %I to rental_agent '
+                   'using (true) with check (true)', t);
   end loop;
 end $$;

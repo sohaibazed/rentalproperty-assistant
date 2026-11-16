@@ -60,8 +60,8 @@ MAGIC = {".pdf": [b"%PDF"], ".png": [b"\x89PNG"], ".jpg": [b"\xff\xd8\xff"],
          ".jpeg": [b"\xff\xd8\xff"], ".gif": [b"GIF8"], ".webp": [b"RIFF"]}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_EXPENSE = Decimal(100000)
-NO_DOCUMENTS = ("The documents table isn't set up yet. The owner needs to run "
-                "0002_reference_documents.sql and reference/supabase-documents.sql in Supabase.")
+NO_DOCUMENTS = ("The documents table doesn't exist. The owner needs to run "
+                "supabase/schema.sql in the Supabase SQL Editor.")
 
 TOOL_LABELS = {"WebSearch": "Searching the web", "WebFetch": "Reading a web page",
                "mcp__rental__list_reference_documents": "Looking through your documents",

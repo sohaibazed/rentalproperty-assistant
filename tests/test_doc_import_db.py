@@ -1,4 +1,4 @@
-"""Document import against Postgres as the rental_agent role (needs 0001-0003 applied)."""
+"""Document import against Postgres as the rental_agent role (needs supabase/schema.sql applied)."""
 
 import json
 import os

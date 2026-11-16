@@ -2,8 +2,9 @@
 
 A private web app that helps run a small rental-property LLC:
 
-- **Chat** (home page): ask questions, attach receipts to record expenses, research local
-  rental rules, and start jobs. Every change waits for you to click a confirm card.
+- **Chat** (home page): ask questions, attach receipts to record expenses, import new leases
+  and LLC documents, ask about your leases or local rental rules, and start jobs. Every change
+  waits for you to click a confirm card.
 - **Jobs**: `sync-email` imports rent and expense emails from Gmail (automatically on the
   1st, 11th and 21st), `research-rent` recommends next year's rent from comparable listings,
   `generate-lease` writes the yearly lease extension (.docx + .pdf), and `tax-report` builds the
@@ -20,9 +21,10 @@ and Claude does the reading, research and extraction.
 3. [Supabase (database)](#3-supabase-database)
 4. [Anthropic / Claude credentials](#4-anthropic--claude-credentials)
 5. [Gmail](#5-gmail)
-6. [Finish setup](#6-finish-setup)
-7. [Where things are stored](#7-where-things-are-stored)
-8. [Troubleshooting](#8-troubleshooting)
+6. [Add your LLC, property and leases](#6-add-your-llc-property-and-leases)
+7. [Using it for your own business](#7-using-it-for-your-own-business)
+8. [Where things are stored](#8-where-things-are-stored)
+9. [Troubleshooting](#9-troubleshooting)
 
 ---
 
@@ -60,6 +62,7 @@ make up
 Open <http://localhost:8080> and sign in. The app only listens on your Mac (`127.0.0.1`).
 Other commands: `make down` (stop), `make logs` (follow logs),
 `make set-login-email EMAIL=you@example.com` (change the sign-in email, then `make up`).
+Run `make up` again after pulling new code.
 
 > Don't lose the Keychain item `rental-agent-secret-key`. Without it the app can't read the
 > secrets you saved in Settings, and you'd have to enter them again.
@@ -77,11 +80,12 @@ The rest of the setup happens on the **Settings** page.
 ### 3.2 Create the tables
 
 1. In the project, open **SQL Editor** and click **New query**.
-2. Paste the whole contents of [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql)
-   and click **Run**. It's safe to run again; it skips anything that already exists.
+2. Paste the whole contents of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
 
-This creates the tables, a restricted database role called `rental_agent` (it can read, insert and
-update, but never delete), and row-level security so Supabase's public API keys see nothing.
+This is the only SQL file you need. It creates every table, a restricted database role called
+`rental_agent` (it can read, add and update rows, but never delete), and row-level security so
+Supabase's public API keys see nothing. It's safe to run again: it skips anything that already
+exists. After pulling a newer version of this repo, run it again.
 
 ### 3.3 Give the app its own login
 
@@ -113,64 +117,7 @@ IPv6, which Docker on a Mac usually can't reach.
 
 **Settings → Supabase database URL**: paste the URL, click **Save**, then **Test connection**.
 
-### 3.6 Add your property and current lease
-
-The jobs need your property, tenants and current lease. In the Supabase SQL Editor, fill in
-your real values and run:
-
-```sql
-insert into properties (address, city, county, state, zip, property_type, beds, baths, sqft,
-                        landlord_names)
-values ('123 Example St', 'Plano', 'Collin', 'TX', '75024', 'townhouse', 3, 2.5, 1950,
-        array['Landlord One', 'Landlord Two']);
-
-insert into tenants (full_name) values ('Tenant One'), ('Tenant Two');
-
--- The lease term in effect now. For a yearly extension, set original_lease_date to the date
--- of the first lease it extends.
-insert into leases (property_id, start_date, end_date, monthly_rent, deposit, original_lease_date)
-values (1, '2026-01-01', '2026-12-31', 2500, 2500, '2024-11-06');
-
-insert into lease_tenants (lease_id, tenant_id) values (1, 1), (1, 2);
-```
-
-Check the result on the **Leases** page in the app.
-
-### 3.7 Load your documents (optional)
-
-The chat can answer questions from your leases, LLC papers and the `.md` notes in `reference/`
-once their text is in Supabase. `reference/tenant-screening/` is never included, and SSNs are
-redacted.
-
-1. In the SQL Editor, run [`supabase/migrations/0002_reference_documents.sql`](supabase/migrations/0002_reference_documents.sql).
-2. On your Mac, run `make reference-sql`. It writes `reference/supabase-documents.sql`.
-   For a scanned PDF with no text, put a transcription next to it as a `.md` file with the
-   same name; the `.md` is used instead of the PDF.
-3. Paste that file into the SQL Editor and click **Run**. Re-run steps 2-3 whenever the
-   documents change.
-
-### 3.8 Importing new leases and LLC documents
-
-Run [`supabase/migrations/0003_document_import.sql`](supabase/migrations/0003_document_import.sql)
-once in the SQL Editor. It adds an `llcs` table, links each property to its LLC, and lets the
-app save imported documents.
-
-After that, the **import-document** skill handles each new lease, lease extension, certificate
-of formation, operating agreement or EIN letter, for this property or a new one:
-
-- **In the chat:** attach the PDF and say "import this". Claude reads it and shows a card with
-  the LLC, property, tenants and lease term it found. Nothing is saved until you click **Save**.
-  Import LLC documents before the leases of the properties the LLC owns.
-- **In Claude Code** (in this folder, with the app running): ask it to import the document.
-  It previews with `make import-document FILE=... DATA=...` and saves with `APPLY=1` only after
-  you confirm.
-
-Re-importing the same document updates the records instead of duplicating them. A new
-property gets only what a lease states; add beds, baths and square feet in Supabase so rent
-research works. The skill's instructions are in
-[`agent-plugin/skills/import-document/SKILL.md`](agent-plugin/skills/import-document/SKILL.md).
-
-### 3.9 Good to know
+### 3.6 Good to know
 
 - **Pausing:** free Supabase projects pause after about a week without activity. The app pings
   the database once a day while it's running, so keep it running (Docker Desktop open), or
@@ -182,8 +129,8 @@ research works. The skill's instructions are in
 
 ## 4. Anthropic / Claude credentials
 
-The app uses Claude for the chat, reading rent and expense emails, and rent research.
-Set **one** of these on the **Settings** page.
+The app uses Claude for the chat, reading documents, rent and expense emails, and rent
+research. Set **one** of these on the **Settings** page.
 
 **Option A: Anthropic API key** (pay as you go)
 
@@ -253,23 +200,74 @@ stay in Testing, click **Reconnect Gmail** in Settings once a week.
 ### 5.5 Tell it which emails to read
 
 Edit [`config/email_sources.toml`](config/email_sources.toml) on your Mac with your bank's
-rent-alert sender and the vendors that email you receipts, then restart with `make up`.
-Run **sync-email** from **Run a job** with **Dry run** checked first, and compare the result
-with your bank statement.
+rent-alert sender and the vendors that email you receipts. The file is read at the start of
+every sync, so no restart is needed. Run **sync-email** from **Run a job** with **Dry run**
+checked first, and compare the result with your bank statement.
 
-## 6. Finish setup
+The **Dashboard** checklist should now show three green ticks: Database URL, Claude
+credentials and Gmail connected.
 
-The **Dashboard** checklist should show three green ticks: Database URL, Claude credentials
-and Gmail connected. Then:
+## 6. Add your LLC, property and leases
 
-- Open **Memory** and add your standing rules (for example, which vendors are personal).
-- Try the chat: attach a receipt and ask it to add the expense.
+The jobs need your property, tenants and current lease. You don't type them in: the
+**import-document** skill reads your documents and fills the database.
 
-## 7. Where things are stored
+1. Open the chat and attach your LLC's **certificate of formation** with the message
+   "import this". Claude shows a card with what it found (name, filing number, members,
+   managers, registered agent). Check it and click **Save**. Repeat for the **operating
+   agreement** and the **EIN letter**.
+2. Attach your current **lease** (and any **extension**) the same way. The card shows the
+   property, landlords, tenants, term, rent and deposit. Saving adds the property, links it
+   to your LLC, adds the tenants and the lease term, and stores the document's text so the
+   chat can answer questions about it later.
+3. A lease doesn't state the property's size, which rent research needs. In the Supabase SQL
+   Editor, fill it in (find the id on the **Leases** page):
+
+   ```sql
+   update properties set property_type = 'townhouse', beds = 3, baths = 2.5, sqft = 1950
+   where id = 1;
+   ```
+
+4. Open **Memory** and add your standing rules (for example, which vendors are personal).
+
+Import LLC documents before leases, so each property is linked to its LLC. Re-importing a
+document updates its records instead of duplicating them. The same steps work for a second
+property or a second LLC.
+
+**From Claude Code:** in this folder, with the app running, ask Claude Code to import a
+document. It follows the same skill
+([`agent-plugin/skills/import-document/SKILL.md`](agent-plugin/skills/import-document/SKILL.md)),
+previews the result with `make import-document FILE=... DATA=...`, and saves only after you
+confirm.
+
+**Optional: load a folder of documents at once.** Put your documents in `reference/` (for
+example `reference/leases/` and `reference/llc/`), run `make reference-sql`, then paste the
+generated `reference/supabase-documents.sql` into the SQL Editor. This stores only the
+documents' text for questions; it does not create LLC, property or lease records. For a
+scanned PDF with no text, put a transcription next to it as a `.md` file with the same name.
+`reference/tenant-screening/` is never included, and SSNs are redacted.
+
+## 7. Using it for your own business
+
+The app works for any small rental LLC, but a few defaults are set for the original owner's
+property in Plano, Texas. Check them before relying on the output:
+
+| Default | Where | Change it if |
+|---|---|---|
+| Renewal notice: 45 days before the lease ends | `NOTICE_DAYS` in [`src/rental_agent/jobs/lease.py`](src/rental_agent/jobs/lease.py) | Your lease's notice clause says otherwise |
+| Lease extension wording | [`templates/lease_extension_template.docx`](templates/lease_extension_template.docx) | You're outside Texas or want different wording (have a lawyer review it) |
+| Time zone `America/Chicago` (scheduler's "today") | `TZ` in [`docker-compose.yml`](docker-compose.yml) | You're in another time zone |
+| Taxes on Schedule E (single-member LLC) | `tax-report` job | Your LLC files a partnership return (Form 1065); ask your CPA |
+| Senders to read in Gmail | [`config/email_sources.toml`](config/email_sources.toml) | Always: set your bank and vendors |
+| Agent instructions | [`prompts/agent-prompts.md`](prompts/agent-prompts.md) | You want the assistant to behave differently |
+
+Restart with `make up` after changing code, templates or prompts.
+
+## 8. Where things are stored
 
 | What | Where |
 |---|---|
-| Rent, expenses, leases, research, chats, job runs | Supabase |
+| LLCs, properties, rent, expenses, leases, research, document text, chats, job runs | Supabase |
 | `memory/` (your rules) | Folder on your Mac |
 | `artifacts/` (reports, leases, tax files, receipts, chat uploads) | Folder on your Mac |
 | `reference/` (your documents; read-only to the app) | Folder on your Mac |
@@ -279,7 +277,7 @@ and Gmail connected. Then:
 
 `memory/`, `artifacts/`, `reference/` and `data/` are excluded from git and from the Docker image.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -287,8 +285,10 @@ and Gmail connected. Then:
 | Can't sign in | `make set-login-email EMAIL=...` to fix the email. To reset the password, delete the Keychain item `rental-agent-ui-password` in Keychain Access, run `make init-keys`, then `make up`. |
 | "Can't reach the database" | Use the **Session pooler** URL with user `rental_agent.<project-ref>` (section 3.4), URL-encode special characters, and check the project isn't paused. |
 | "Tenant or user not found" | The username is missing its project ref: it must be `rental_agent.<project-ref>`, not just `rental_agent`. |
+| "permission denied" or "relation ... does not exist" | Run [`supabase/schema.sql`](supabase/schema.sql) again (section 3.2), for example after pulling a newer version. |
 | "RENTAL_DB_URL is not set" | Save the database URL in Settings. |
 | Chat says "Claude sign-in failed" | Check the API key or token in Settings (section 4). A Claude Code token can expire; run `claude setup-token` again. |
+| An import card says "isn't in the database yet" | The lease names an LLC that hasn't been imported. Import the LLC's documents first, or ask the chat to leave the owner blank. |
 | Gmail: "redirect_uri_mismatch" | The OAuth client must be a **Web application** with the exact redirect URI from section 5.3. |
 | Gmail stops working after a week | The consent screen is in Testing; publish it (section 5.2) or reconnect. |
 | Gmail stops working after you change your Google password | Google cancels Gmail access on a password change; click **Reconnect Gmail** in Settings. |
@@ -296,6 +296,8 @@ and Gmail connected. Then:
 
 ---
 
-For development: `make setup` installs dependencies locally, and `make test` runs the tests
-(database tests run when `TEST_DATABASE_URL` and `TEST_ADMIN_DATABASE_URL` point at a test
-Postgres). Agent prompts are in [`prompts/agent-prompts.md`](prompts/agent-prompts.md).
+For development: `make setup` installs dependencies locally, and `make test` runs the tests.
+Database tests run when `TEST_DATABASE_URL` (a `rental_agent` login) and
+`TEST_ADMIN_DATABASE_URL` (an admin login) point at a test Postgres with
+[`supabase/schema.sql`](supabase/schema.sql) applied. Agent prompts are in
+[`prompts/agent-prompts.md`](prompts/agent-prompts.md).
