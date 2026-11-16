@@ -3,7 +3,7 @@
 
 PY := uv run python -m rental_agent
 
-.PHONY: setup test lint gmail-auth sync-email sync-email-dry tax-report
+.PHONY: setup test lint gmail-auth sync-email sync-email-dry tax-report generate-lease
 
 setup:  ## Create .venv and install dependencies
 	uv sync
@@ -25,3 +25,6 @@ sync-email-dry:  ## Show what sync-email would import, without writing anything
 
 tax-report:  ## Year-end Schedule E summary; override with YEAR=2026
 	$(PY) tax-report $(if $(YEAR),--year $(YEAR))
+
+generate-lease:  ## Yearly lease extension: make generate-lease PROPERTY=1 RENT=2600 [DRY=1]
+	$(PY) generate-lease --property-id $(PROPERTY) $(if $(RENT),--rent $(RENT)) $(if $(DRY),--dry-run)

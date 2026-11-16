@@ -186,3 +186,97 @@ def leases_active_in_year(conn: psycopg.Connection, year: int) -> list[LeaseRow]
         (year, year),
     ).fetchall()
     return [LeaseRow(*r) for r in rows]
+
+
+# --- Lease extensions ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PropertyDetail:
+    id: int
+    address: str
+    unit: str | None
+    city: str | None
+    county: str | None
+    state: str
+    zip: str | None
+    landlord_names: list[str]
+
+
+@dataclass(frozen=True)
+class CurrentLease:
+    id: int
+    start_date: date
+    end_date: date
+    monthly_rent: Decimal
+    deposit: Decimal | None
+    original_lease_date: date | None
+    tenant_ids: list[int]
+    tenant_names: list[str]
+
+    @property
+    def lease_being_extended(self) -> date:
+        """The original lease's date: carried forward on extensions, else this lease's start."""
+        return self.original_lease_date or self.start_date
+
+
+def property_detail(conn: psycopg.Connection, property_id: int) -> PropertyDetail | None:
+    row = conn.execute(
+        """select id, address, unit, city, county, state, zip, coalesce(landlord_names, '{}')
+           from properties where id = %s""",
+        (property_id,),
+    ).fetchone()
+    return PropertyDetail(*row) if row else None
+
+
+def latest_lease(conn: psycopg.Connection, property_id: int) -> CurrentLease | None:
+    row = conn.execute(
+        """select l.id, l.start_date, l.end_date, l.monthly_rent, l.deposit, l.original_lease_date,
+                  coalesce(array_agg(t.id order by t.id) filter (where t.id is not null), '{}'),
+                  coalesce(array_agg(t.full_name order by t.id) filter (where t.id is not null), '{}')
+           from leases l
+           left join lease_tenants lt on lt.lease_id = l.id
+           left join tenants t on t.id = lt.tenant_id
+           where l.property_id = %s
+           group by l.id
+           order by l.end_date desc, l.id desc
+           limit 1""",
+        (property_id,),
+    ).fetchone()
+    return CurrentLease(*row) if row else None
+
+
+def recommended_rent(conn: psycopg.Connection, property_id: int, year: int) -> Decimal | None:
+    row = conn.execute(
+        "select recommended_rent from rent_research where property_id = %s and year = %s",
+        (property_id, year),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def insert_lease_extension(
+    conn: psycopg.Connection,
+    *,
+    property_id: int,
+    start_date: date,
+    end_date: date,
+    monthly_rent: Decimal,
+    deposit: Decimal | None,
+    original_lease_date: date,
+    other_terms: str | None,
+    tenant_ids: list[int],
+    docx_path: str,
+    pdf_path: str,
+) -> int:
+    lease_id = conn.execute(
+        """insert into leases (property_id, start_date, end_date, monthly_rent, deposit,
+                               original_lease_date, other_terms, docx_path, pdf_path)
+           values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning id""",
+        (property_id, start_date, end_date, monthly_rent, deposit, original_lease_date,
+         other_terms, docx_path, pdf_path),
+    ).fetchone()[0]
+    for tenant_id in tenant_ids:
+        conn.execute(
+            "insert into lease_tenants (lease_id, tenant_id) values (%s, %s)", (lease_id, tenant_id)
+        )
+    return lease_id

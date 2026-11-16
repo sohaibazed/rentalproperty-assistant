@@ -14,6 +14,11 @@ create table if not exists properties (
   id             bigint generated always as identity primary key,
   address        text not null,
   unit           text,
+  city           text,
+  county         text,
+  state          text not null default 'TX',
+  zip            text,
+  landlord_names text[],                  -- names as they appear on leases
   beds           numeric(3,1),
   baths          numeric(3,1),
   sqft           integer,
@@ -31,17 +36,26 @@ create table if not exists tenants (
   created_at  timestamptz not null default now()
 );
 
+-- One row per lease term: the original lease, then one per yearly extension.
 create table if not exists leases (
-  id            bigint generated always as identity primary key,
-  property_id   bigint not null references properties(id),
-  tenant_id     bigint not null references tenants(id),
-  start_date    date not null,
-  end_date      date not null check (end_date > start_date),
-  monthly_rent  numeric(10,2) not null check (monthly_rent > 0),
-  deposit       numeric(10,2) check (deposit >= 0),
-  docx_path     text,
-  pdf_path      text,
-  created_at    timestamptz not null default now()
+  id                   bigint generated always as identity primary key,
+  property_id          bigint not null references properties(id),
+  start_date           date not null,
+  end_date             date not null check (end_date > start_date),
+  monthly_rent         numeric(10,2) not null check (monthly_rent > 0),
+  deposit              numeric(10,2) check (deposit >= 0),
+  original_lease_date  date,             -- set on extensions: date of the lease being extended
+  other_terms          text,
+  docx_path            text,
+  pdf_path             text,
+  created_at           timestamptz not null default now()
+);
+
+-- Co-tenants on each lease term.
+create table if not exists lease_tenants (
+  lease_id   bigint not null references leases(id),
+  tenant_id  bigint not null references tenants(id),
+  primary key (lease_id, tenant_id)
 );
 
 create table if not exists rent_payments (
@@ -113,7 +127,7 @@ grant usage on type schedule_e_category to rental_agent;
 do $$
 declare t text;
 begin
-  foreach t in array array['properties','tenants','leases','rent_payments','expenses',
+  foreach t in array array['properties','tenants','leases','lease_tenants','rent_payments','expenses',
                            'rent_research','email_ingest_log','sync_runs'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists rental_agent_all on %I', t);

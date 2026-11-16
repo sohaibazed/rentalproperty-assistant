@@ -43,12 +43,13 @@ EXTRACTIONS = {
 @pytest.fixture
 def seeded():
     with psycopg.connect(ADMIN, autocommit=True) as conn:
-        conn.execute("truncate rent_payments, expenses, email_ingest_log, sync_runs, leases, "
+        conn.execute("truncate rent_payments, expenses, email_ingest_log, sync_runs, lease_tenants, leases, "
                      "tenants, properties restart identity cascade")
         pid = conn.execute("insert into properties (address) values ('12 Oak St') returning id").fetchone()[0]
         tid = conn.execute("insert into tenants (full_name) values ('Jane') returning id").fetchone()[0]
-        conn.execute("insert into leases (property_id, tenant_id, start_date, end_date, monthly_rent) "
-                     "values (%s, %s, '2026-01-01', '2026-12-31', 1800)", (pid, tid))
+        lid = conn.execute("insert into leases (property_id, start_date, end_date, monthly_rent) "
+                           "values (%s, '2026-01-01', '2026-12-31', 1800) returning id", (pid,)).fetchone()[0]
+        conn.execute("insert into lease_tenants values (%s, %s)", (lid, tid))
     for kind in EXTRACTIONS.values():
         if kind["kind"] == "rent":
             kind["property_id"] = pid
@@ -70,7 +71,8 @@ def fakes(monkeypatch, tmp_path):
     sources.write_text('[rent]\nsenders=["bank@x.com"]\n')
     return Settings(model="test", db_url=DB, artifacts_dir=tmp_path / "artifacts",
                     reference_dir=tmp_path, gmail_client_secrets=tmp_path / "c",
-                    gmail_token_path=tmp_path / "t", email_sources_path=sources)
+                    gmail_token_path=tmp_path / "t", email_sources_path=sources,
+                    soffice_bin="soffice")
 
 
 def test_sync_inserts_then_dedupes(seeded, fakes):

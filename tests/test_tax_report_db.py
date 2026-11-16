@@ -17,13 +17,14 @@ pytestmark = pytest.mark.skipif(not (DB and ADMIN), reason="no test database con
 
 def test_report_from_database(tmp_path: Path):
     with psycopg.connect(ADMIN, autocommit=True) as conn:
-        conn.execute("truncate rent_payments, expenses, email_ingest_log, sync_runs, leases, "
+        conn.execute("truncate rent_payments, expenses, email_ingest_log, sync_runs, lease_tenants, leases, "
                      "tenants, properties restart identity cascade")
         pid = conn.execute("insert into properties (address) values ('12 Oak St') returning id").fetchone()[0]
         tid = conn.execute("insert into tenants (full_name) values ('Jane') returning id").fetchone()[0]
-        lid = conn.execute("insert into leases (property_id, tenant_id, start_date, end_date, monthly_rent) "
-                           "values (%s, %s, '2025-01-01', '2025-12-31', 1000) returning id",
-                           (pid, tid)).fetchone()[0]
+        lid = conn.execute("insert into leases (property_id, start_date, end_date, monthly_rent) "
+                           "values (%s, '2025-01-01', '2025-12-31', 1000) returning id",
+                           (pid,)).fetchone()[0]
+        conn.execute("insert into lease_tenants values (%s, %s)", (lid, tid))
         for month in range(1, 13):
             conn.execute("insert into rent_payments (lease_id, amount, paid_on) values (%s, 1000, %s)",
                          (lid, date(2025, month, 1)))
@@ -35,7 +36,7 @@ def test_report_from_database(tmp_path: Path):
 
     settings = Settings(model="test", db_url=DB, artifacts_dir=tmp_path, reference_dir=tmp_path,
                         gmail_client_secrets=tmp_path, gmail_token_path=tmp_path,
-                        email_sources_path=tmp_path)
+                        email_sources_path=tmp_path, soffice_bin="soffice")
     report, xlsx, csv_path = tax_report.run(settings, 2025)
 
     assert report.rent == {pid: 12000}

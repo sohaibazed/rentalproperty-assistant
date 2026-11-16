@@ -26,6 +26,7 @@ class Settings:
     gmail_client_secrets: Path
     gmail_token_path: Path
     email_sources_path: Path
+    soffice_bin: str
 
 
 def load_settings() -> Settings:
@@ -39,6 +40,7 @@ def load_settings() -> Settings:
         ),
         gmail_token_path=_path("GMAIL_TOKEN_PATH", "~/.config/rental-agent/gmail.token.json"),
         email_sources_path=_path("RENTAL_EMAIL_SOURCES", "./config/email_sources.toml"),
+        soffice_bin=os.environ.get("SOFFICE_BIN", "soffice"),
     )
 
 
