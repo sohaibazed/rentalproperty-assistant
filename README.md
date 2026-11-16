@@ -150,7 +150,8 @@ research. Set **one** of these on the **Settings** page.
 3. **Settings → Claude Code OAuth token**: paste it and **Save**.
 
 If both are set, the API key is used. Pick a model per chat in the chat's model menu;
-Opus 5.5 is the default, and Sonnet 5.5 and Haiku 5.5 are faster and cheaper.
+Sonnet 5.5 is the default for new chats; Opus 5.5 is the most capable, and Haiku 5.5 is the
+fastest and cheapest. The jobs always use Opus 5.5.
 
 ## 5. Gmail
 

@@ -45,7 +45,7 @@ MODELS = {
     "claude-sonnet-5-5": "Sonnet 5.5",
     "claude-haiku-5-5": "Haiku 5.5",
 }
-DEFAULT_MODEL = "claude-opus-5-5"
+DEFAULT_MODEL = "claude-sonnet-5-5"
 
 # Skills for the chat live in a local plugin; .claude/skills links to the same files so
 # Claude Code in this repo uses them too.
