@@ -377,6 +377,17 @@ def job_runs(conn: psycopg.Connection, limit: int = 50, job: str | None = None) 
                            order by id desc limit %s""", (job, job, limit))
 
 
+def mark_research_saved(conn: psycopg.Connection, run_id: int, report: str, note: str) -> None:
+    """After a dry-run recommendation is saved: the run no longer counts as a dry run."""
+    conn.execute(
+        """update job_runs set params = params || '{"dry_run": false}'::jsonb,
+                  outputs = array[%s],
+                  summary = replace(summary, 'Dry run: recommendation not saved.', %s)
+           where id = %s""",
+        (report, note, run_id),
+    )
+
+
 def job_run(conn: psycopg.Connection, run_id: int) -> dict | None:
     rows = _dicts(conn, "select * from job_runs where id = %s", (run_id,))
     return rows[0] if rows else None

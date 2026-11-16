@@ -8,6 +8,9 @@ Two agents, no write access anywhere:
 
 Python then drops unusable comps, computes the stats itself, flags anything doubtful,
 writes the report, and saves the result so generate-lease can use it.
+
+A dry run writes `<address>-dry-run.md` plus a `.json` file holding the recommendation, and
+saves nothing. `save_dry_run` later saves that recommendation without researching again.
 """
 
 import json
@@ -26,6 +29,9 @@ from rental_agent.config import Settings
 from rental_agent.jobs.lease import NOTICE_DAYS, long_date, money
 
 MIN_COMPS = 5
+DRY_RUN_SUFFIX = "-dry-run"
+DRY_RUN_NOTE = "> **Dry run:** this recommendation is not saved."
+
 RENT_RATIO_LIMITS = (Decimal("0.4"), Decimal("2.5"))  # vs current rent
 
 # Prompts live in prompts/agent-prompts.md.
@@ -230,7 +236,7 @@ def analyze(facts: Facts, raw: dict[str, Any]) -> Research:
     return r
 
 
-def render_report(r: Research, today: date) -> str:
+def render_report(r: Research, today: date, dry_run: bool = False) -> str:
     f = r.facts
     change = r.recommended - f.current_rent
     pct = change / f.current_rent * 100
@@ -240,6 +246,7 @@ def render_report(r: Research, today: date) -> str:
         "",
         f"_Generated {long_date(today)}. Advice only; the rent decision is yours._",
         "",
+        *([DRY_RUN_NOTE, ""] if dry_run else []),
         "## Recommendation",
         "",
         (f"- **Recommended rent:** {money(r.recommended)}/month "
@@ -320,20 +327,53 @@ async def run(
     research = analyze(facts, await ask_agents(facts, settings))
 
     slug = re.sub(r"[^a-z0-9]+", "-", facts.address.split(",")[0].lower()).strip("-")
-    report = settings.artifacts_dir / str(facts.year) / "rent-research" / f"{slug}.md"
+    # A dry run gets its own file, so it never replaces the saved report.
+    name = slug + (DRY_RUN_SUFFIX if dry_run else "")
+    report = settings.artifacts_dir / str(facts.year) / "rent-research" / f"{name}.md"
     report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(render_report(research, date.today()))
+    report.write_text(render_report(research, date.today(), dry_run))
+    saved = {"property_id": property_id, "year": facts.year,
+             "comps": comps_json(research.comps), "recommended_rent": str(research.recommended),
+             "rationale": research.rationale}
 
-    if not dry_run:
-        with db.connect(settings.db_url) as conn:
-            db.upsert_rent_research(
-                conn,
-                property_id=property_id,
-                year=facts.year,
-                comps=comps_json(research.comps),
-                recommended_rent=research.recommended,
-                rationale=research.rationale,
-                report_path=str(report.relative_to(settings.artifacts_dir)),
-            )
-            conn.commit()
+    if dry_run:
+        report.with_suffix(".json").write_text(json.dumps(saved))
+    else:
+        _save(settings, saved, report)
     return research, report
+
+
+def _save(settings: Settings, saved: dict[str, Any], report: Path) -> None:
+    with db.connect(settings.db_url) as conn:
+        db.upsert_rent_research(
+            conn,
+            property_id=saved["property_id"],
+            year=saved["year"],
+            comps=saved["comps"],
+            recommended_rent=Decimal(saved["recommended_rent"]),
+            rationale=saved["rationale"],
+            report_path=str(report.resolve().relative_to(settings.artifacts_dir.resolve())),
+        )
+        conn.commit()
+
+
+def save_dry_run(settings: Settings, report_rel: str) -> str:
+    """Save a dry run's recommendation as if it had run without dry run: the report loses
+    its dry-run tag (file name and note) and the recommendation is stored for generate-lease.
+    Returns the new report path, relative to artifacts/. Does not research again."""
+    root = settings.artifacts_dir.resolve()
+    report = (root / report_rel).resolve()
+    data_file = report.with_suffix(".json")
+    if (not report.is_relative_to(root) or report.parent.name != "rent-research"
+            or not report.stem.endswith(DRY_RUN_SUFFIX)):
+        raise ValueError("That isn't a dry-run rent report")
+    if not report.is_file() or not data_file.is_file():
+        raise ValueError("The dry-run report is gone; run research-rent again")
+    saved = json.loads(data_file.read_text())
+    final = report.with_name(report.stem.removesuffix(DRY_RUN_SUFFIX) + ".md")
+    text = report.read_text().replace(DRY_RUN_NOTE + "\n\n", "", 1)
+    _save(settings, saved, final)
+    final.write_text(text)
+    report.unlink()
+    data_file.unlink()
+    return str(final.relative_to(root))

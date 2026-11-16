@@ -10,6 +10,13 @@
     <h2>Summary</h2>
     {% if run.summary %}<ul>{% for line in run.summary.split("\n") %}<li>{{ line }}</li>{% endfor %}</ul>
     {% else %}<p class="muted">Still running…</p>{% endif %}
+    {% if run.job == "research-rent" and run.status == "success" and run.params.get("dry_run") %}
+      <form method="post" action="/runs/{{ run.id }}/save-research">
+        <p class="small muted">This was a dry run, so the recommendation isn't saved. Saving it
+          now removes the dry-run tag, as if the job had run without it. It doesn't research again.</p>
+        <button type="submit">Save this recommendation</button>
+      </form>
+    {% endif %}
   </section>
   <section class="card">
     <h2>Files</h2>

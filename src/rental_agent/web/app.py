@@ -16,7 +16,7 @@ import os
 import re
 import secrets as pysecrets
 import time
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -30,6 +30,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from rental_agent import db, gmail, runner
 from rental_agent.config import artifacts_dir, env_or_file
+from rental_agent.jobs import rent_research
 from rental_agent.web import chat_views
 from rental_agent.web.jobs import JobManager, next_sync_date, scheduler
 from rental_agent.web.secrets import GMAIL_TOKEN, SECRETS, SecretStore
@@ -200,6 +201,44 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         if not run:
             raise HTTPException(404)
         return page(request, "run.html", run=run)
+
+    @app.post("/runs/{run_id}/save-research")
+    async def save_dry_run_research(request: Request, run_id: int):
+        """Remove the dry-run tag from a research-rent run: save its recommendation."""
+        back = f"/runs/{run_id}"
+        conn, db_error = connect()
+        if not conn:
+            flash(request, db_error, "error")
+            return RedirectResponse(back, status_code=303)
+        with conn:
+            run = db.job_run(conn, run_id)
+            if not run:
+                raise HTTPException(404)
+            reports = [p for p in run["outputs"] or []
+                       if p.endswith(rent_research.DRY_RUN_SUFFIX + ".md")]
+            if (run["job"] != "research-rent" or run["status"] != "success"
+                    or not run["params"].get("dry_run") or not reports):
+                flash(request, "Only a successful dry run of research-rent can be saved.", "error")
+                return RedirectResponse(back, status_code=303)
+            data_file = artifacts_dir() / Path(reports[0]).with_suffix(".json")
+            # A later dry run for the same property and year writes the same files.
+            if data_file.is_file() and datetime.fromtimestamp(data_file.stat().st_mtime, UTC) \
+                    > run["finished_at"] + timedelta(seconds=5):
+                flash(request, "A newer dry run replaced this report. Save from that run instead.",
+                      "error")
+                return RedirectResponse(back, status_code=303)
+            try:
+                final = rent_research.save_dry_run(manager.settings(), reports[0])
+            except (ValueError, RuntimeError, psycopg.Error) as exc:
+                flash(request, f"Not saved: {exc}", "error")
+                return RedirectResponse(back, status_code=303)
+            db.mark_research_saved(
+                conn, run_id, final,
+                f"Saved from this dry run on {date.today():%b %-d, %Y}; generate-lease will use "
+                "this rent by default.")
+            conn.commit()
+        flash(request, "Recommendation saved. The report is no longer marked as a dry run.")
+        return RedirectResponse(back, status_code=303)
 
     # --- Results ------------------------------------------------------------------------------
 
