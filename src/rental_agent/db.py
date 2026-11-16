@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import psycopg
+import psycopg.rows
 
 
 @dataclass(frozen=True)
@@ -328,3 +329,109 @@ def upsert_rent_research(
              created_at = now()""",
         (property_id, year, comps, recommended_rent, rationale, report_path),
     )
+
+
+# --- Web app: job runs and read-only views ------------------------------------------------
+
+
+def ping(conn: psycopg.Connection) -> None:
+    """Cheap query; the scheduler runs it daily so a free Supabase project stays active."""
+    conn.execute("select 1").fetchone()
+
+
+def start_job_run(conn: psycopg.Connection, job: str, params_json: str, trigger: str) -> int:
+    run_id = conn.execute(
+        "insert into job_runs (job, params, trigger) values (%s, %s::jsonb, %s) returning id",
+        (job, params_json, trigger),
+    ).fetchone()[0]
+    conn.commit()
+    return run_id
+
+
+def finish_job_run(
+    conn: psycopg.Connection, run_id: int, *, ok: bool, summary: str, outputs: list[str], log: str
+) -> None:
+    conn.execute(
+        """update job_runs set status = %s, finished_at = now(), summary = %s, outputs = %s,
+           log = %s where id = %s""",
+        ("success" if ok else "failed", summary, outputs, log, run_id),
+    )
+    conn.commit()
+
+
+def fail_stale_job_runs(conn: psycopg.Connection) -> None:
+    """Runs left 'running' by a container restart can never finish; mark them failed."""
+    conn.execute("""update job_runs set status = 'failed', finished_at = now(),
+                    summary = 'Interrupted (app restarted)' where status = 'running'""")
+    conn.commit()
+
+
+def _dicts(conn: psycopg.Connection, sql: str, params: tuple = ()) -> list[dict]:
+    with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+        return cur.execute(sql, params).fetchall()
+
+
+def job_runs(conn: psycopg.Connection, limit: int = 50, job: str | None = None) -> list[dict]:
+    return _dicts(conn, """select id, job, trigger, status, started_at, finished_at, summary
+                           from job_runs where %s::text is null or job = %s
+                           order by id desc limit %s""", (job, job, limit))
+
+
+def job_run(conn: psycopg.Connection, run_id: int) -> dict | None:
+    rows = _dicts(conn, "select * from job_runs where id = %s", (run_id,))
+    return rows[0] if rows else None
+
+
+def last_job_run(conn: psycopg.Connection, job: str, trigger: str) -> dict | None:
+    rows = _dicts(conn, """select * from job_runs where job = %s and trigger = %s
+                           order by id desc limit 1""", (job, trigger))
+    return rows[0] if rows else None
+
+
+def rent_payments_for_year(conn: psycopg.Connection, year: int) -> list[dict]:
+    return _dicts(conn, """select r.paid_on, r.amount, r.payer, r.needs_review, p.address
+                           from rent_payments r left join leases l on l.id = r.lease_id
+                           left join properties p on p.id = l.property_id
+                           where extract(year from r.paid_on) = %s order by r.paid_on desc""",
+                  (year,))
+
+
+def expenses_list(conn: psycopg.Connection, year: int) -> list[dict]:
+    return _dicts(conn, """select e.spent_on, e.amount, e.schedule_e_category::text as category,
+                                  e.vendor, e.description, e.receipt_path, e.needs_review,
+                                  p.address
+                           from expenses e left join properties p on p.id = e.property_id
+                           where extract(year from e.spent_on) = %s order by e.spent_on desc""",
+                  (year,))
+
+
+def year_totals(conn: psycopg.Connection, year: int) -> dict:
+    row = _dicts(conn, """select
+        (select coalesce(sum(amount), 0) from rent_payments where extract(year from paid_on) = %s) as rent,
+        (select coalesce(sum(amount), 0) from expenses where extract(year from spent_on) = %s) as expenses,
+        (select count(*) from rent_payments where needs_review) +
+        (select count(*) from expenses where needs_review) as needs_review""", (year, year))
+    return row[0]
+
+
+def rent_research_list(conn: psycopg.Connection) -> list[dict]:
+    return _dicts(conn, """select rr.year, rr.recommended_rent, rr.rationale, rr.report_path,
+                                  rr.created_at, p.address,
+                                  jsonb_array_length(rr.comps) as comp_count
+                           from rent_research rr join properties p on p.id = rr.property_id
+                           order by rr.year desc, p.address""")
+
+
+def leases_list(conn: psycopg.Connection) -> list[dict]:
+    return _dicts(conn, """select l.id, p.address, l.start_date, l.end_date, l.monthly_rent,
+                                  l.original_lease_date, l.docx_path, l.pdf_path,
+                                  string_agg(t.full_name, ', ' order by t.id) as tenants
+                           from leases l join properties p on p.id = l.property_id
+                           left join lease_tenants lt on lt.lease_id = l.id
+                           left join tenants t on t.id = lt.tenant_id
+                           group by l.id, p.address order by l.start_date desc""")
+
+
+def properties_list(conn: psycopg.Connection) -> list[dict]:
+    return _dicts(conn, """select id, address, unit, city, state, zip, property_type, beds,
+                                  baths, sqft from properties order by id""")

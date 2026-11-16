@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Run a job · Rental Agent{% endblock %}
+{% block content %}
+<h1>Run a job</h1>
+<div class="grid">
+{% for name, (help, params) in jobs.items() %}
+  <section class="card">
+    <h2>{{ name }}</h2>
+    <p class="muted">{{ help }}</p>
+    <form method="post" action="/jobs/{{ name }}">
+      {% for p in params %}
+        {% if p.kind == "bool" %}
+          <label class="check"><input type="checkbox" name="{{ p.name }}" {% if p.name == "dry_run" %}checked{% endif %}> {{ p.label }}</label>
+        {% else %}
+          <label for="{{ name }}-{{ p.name }}">{{ p.label }}{% if p.required %} *{% endif %}</label>
+          <input id="{{ name }}-{{ p.name }}" name="{{ p.name }}"
+                 type="{{ 'date' if p.kind == 'date' else 'number' if p.kind in ('int', 'decimal') else 'text' }}"
+                 {% if p.kind == 'decimal' %}step="0.01" min="0"{% endif %}
+                 {% if p.name == 'property_id' %}value="1"{% endif %}
+                 {% if p.required %}required{% endif %}>
+        {% endif %}
+        {% if p.help %}<small class="muted">{{ p.help }}</small>{% endif %}
+      {% endfor %}
+      <button type="submit" {% if busy %}disabled{% endif %}>Run {{ name }}</button>
+    </form>
+  </section>
+{% endfor %}
+</div>
+{% endblock %}

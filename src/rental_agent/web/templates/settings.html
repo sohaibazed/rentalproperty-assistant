@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Settings · Rental Agent{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<p class="muted">Secrets are encrypted on this machine's data volume. Saved values are never shown again; enter a new value to replace one.</p>
+<div class="grid">
+{% for s in specs %}
+  <section class="card">
+    <h2>{{ s.label }}</h2>
+    <p class="muted">{{ s.help }}</p>
+    <p>Status: {% if status[s.name] %}<span class="pill success">{{ status[s.name] }}</span>{% else %}<span class="pill">not set</span>{% endif %}</p>
+    <form method="post" action="/settings/secret">
+      <input type="hidden" name="name" value="{{ s.name }}">
+      {% if s.multiline %}<textarea name="value" rows="4" autocomplete="off" spellcheck="false" aria-label="{{ s.label }}"></textarea>
+      {% else %}<input name="value" type="password" autocomplete="off" aria-label="{{ s.label }}">{% endif %}
+      <button type="submit">Save</button>
+    </form>
+    {% if status[s.name] %}<form method="post" action="/settings/secret/delete">
+      <input type="hidden" name="name" value="{{ s.name }}"><button class="link danger">Remove</button></form>{% endif %}
+    {% if s.name == "RENTAL_DB_URL" and status[s.name] %}
+      <form method="post" action="/settings/test-db"><button class="secondary">Test connection</button></form>{% endif %}
+  </section>
+{% endfor %}
+  <section class="card">
+    <h2>Gmail</h2>
+    <p class="muted">Read-only access. In Google Cloud, add this redirect URI to the OAuth client: <code>{{ redirect_uri }}</code></p>
+    <p>Status: {% if status.GMAIL_TOKEN %}<span class="pill success">connected</span>{% else %}<span class="pill">not connected</span>{% endif %}</p>
+    <form method="post" action="/oauth/gmail/start"><button type="submit">{{ "Reconnect" if status.GMAIL_TOKEN else "Connect" }} Gmail</button></form>
+    {% if status.GMAIL_TOKEN %}<form method="post" action="/settings/secret/delete">
+      <input type="hidden" name="name" value="GMAIL_TOKEN"><button class="link danger">Disconnect</button></form>{% endif %}
+  </section>
+</div>
+{% endblock %}

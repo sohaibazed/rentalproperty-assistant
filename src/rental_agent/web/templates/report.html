@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · Rental Agent{% endblock %}
+{% block content %}
+<p><a href="/research">← Rent research</a> · <a href="/files/{{ path }}">download .md</a></p>
+<article class="card report">{{ body | safe }}</article>
+{% endblock %}

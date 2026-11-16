@@ -63,16 +63,15 @@ def fakes(monkeypatch, tmp_path):
     monkeypatch.setattr(gmail, "get_message", lambda _s, mid: MESSAGES[mid])
     monkeypatch.setattr(gmail, "get_attachment_bytes", lambda _s, _m, _a: b"%PDF-fake")
 
-    async def fake_extract(msg, _props, _model):
+    async def fake_extract(msg, _props, _model, _env):
         return dict(EXTRACTIONS[msg.message_id])
 
     monkeypatch.setattr(email_sync, "extract", fake_extract)
     sources = tmp_path / "sources.toml"
     sources.write_text('[rent]\nsenders=["bank@x.com"]\n')
     return Settings(model="test", db_url=DB, artifacts_dir=tmp_path / "artifacts",
-                    reference_dir=tmp_path, gmail_client_secrets=tmp_path / "c",
-                    gmail_token_path=tmp_path / "t", email_sources_path=sources,
-                    soffice_bin="soffice")
+                    reference_dir=tmp_path, email_sources_path=sources, soffice_bin="soffice",
+                    gmail_token="{}")
 
 
 def test_sync_inserts_then_dedupes(seeded, fakes):

@@ -39,6 +39,7 @@ class SyncReport:
     ignored: int = 0
     review: list[ReviewItem] = field(default_factory=list)
     errors: list[tuple[str, str]] = field(default_factory=list)  # (message_id, error)
+    summary_path: Path | None = None
 
 
 def resolve_since(explicit: date | None, last_success, today: date) -> date:
@@ -52,7 +53,7 @@ def resolve_since(explicit: date | None, last_success, today: date) -> date:
 async def run(settings: Settings, *, since: date | None, dry_run: bool) -> SyncReport:
     today = date.today()
     sources = load_email_sources(settings.email_sources_path)
-    service = gmail.get_service(settings.gmail_token_path)
+    service = gmail.get_service(settings.gmail_token)
 
     with db.connect(settings.db_url) as conn:
         since = resolve_since(since, db.last_successful_sync_start(conn), today)
@@ -72,7 +73,7 @@ async def run(settings: Settings, *, since: date | None, dry_run: bool) -> SyncR
         for message_id in todo:
             try:
                 msg = gmail.get_message(service, message_id)
-                raw = await extract(msg, properties, settings.model)
+                raw = await extract(msg, properties, settings.model, settings.claude_env)
                 cand = validate(
                     raw,
                     email_date=msg.sent_at.date(),
@@ -95,7 +96,7 @@ async def run(settings: Settings, *, since: date | None, dry_run: bool) -> SyncR
             inserted = report.rent + report.expenses
             status = "failed" if report.errors else "success"
             db.finish_sync_run(conn, run_id, status, inserted)
-            _write_summary(settings.artifacts_dir, today, report)
+            report.summary_path = _write_summary(settings.artifacts_dir, today, report)
 
     return report
 

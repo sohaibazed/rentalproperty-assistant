@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Rent research · Rental Agent{% endblock %}
+{% block content %}
+<h1>Rent research</h1>
+{% include "_db_error.html" %}
+<section class="card">
+  <table>
+    <thead><tr><th>Year</th><th>Property</th><th class="r">Recommended</th><th>Comps</th><th>Report</th></tr></thead>
+    <tbody>{% for r in rows %}<tr>
+      <td>{{ r.year }}</td><td>{{ r.address }}</td><td class="r">{{ r.recommended_rent | money }}</td><td>{{ r.comp_count }}</td>
+      <td>{% if r.report_path %}<a href="/report/{{ r.report_path }}">read</a>{% endif %}</td>
+    </tr>{% else %}<tr><td colspan="5" class="muted">No research yet. <a href="/jobs">Run research-rent</a>.</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+{% endblock %}

@@ -2,6 +2,7 @@
 
 import base64
 import html
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -11,7 +12,7 @@ from typing import Any
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow, InstalledAppFlow
 from googleapiclient.discovery import build
 
 from rental_agent.config import EmailSources
@@ -40,7 +41,7 @@ class EmailMessage:
 
 
 def authorize_interactive(client_secrets: Path, token_path: Path) -> None:
-    """One-time browser consent. Run from a terminal, not from cron."""
+    """One-time browser consent from a terminal (CLI). The web app uses start/finish_web_flow."""
     flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets), SCOPES)
     creds = flow.run_local_server(port=0)
     token_path.parent.mkdir(parents=True, exist_ok=True)
@@ -48,16 +49,31 @@ def authorize_interactive(client_secrets: Path, token_path: Path) -> None:
     token_path.chmod(0o600)
 
 
-def get_service(token_path: Path) -> Any:
-    if not token_path.exists():
-        raise RuntimeError("No Gmail token found. Run `make gmail-auth` once from a terminal.")
-    creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
+def start_web_flow(client_config_json: str, redirect_uri: str) -> tuple[str, str, Flow]:
+    """Begin Google consent in the browser. Returns (url, state, flow); keep the flow, keyed
+    by state, for finish_web_flow."""
+    flow = Flow.from_client_config(json.loads(client_config_json), SCOPES, redirect_uri=redirect_uri)
+    url, state = flow.authorization_url(access_type="offline", prompt="consent")
+    return url, state, flow
+
+
+def finish_web_flow(flow: Flow, authorization_response: str) -> str:
+    """Exchange the callback URL for a token; returns authorized-user JSON (has a refresh token)."""
+    flow.fetch_token(authorization_response=authorization_response)
+    return flow.credentials.to_json()
+
+
+def get_service(token_json: str | None) -> Any:
+    """Build a Gmail client. The access token is refreshed in memory on every run."""
+    if not token_json:
+        raise RuntimeError("Gmail is not connected. Use Settings > Connect Gmail "
+                           "(or `make gmail-auth` for the CLI).")
+    creds = Credentials.from_authorized_user_info(json.loads(token_json), SCOPES)
     if not creds.valid:
-        if creds.expired and creds.refresh_token:
+        if creds.refresh_token:
             creds.refresh(Request())
-            token_path.write_text(creds.to_json())
         else:
-            raise RuntimeError("Gmail token is invalid. Run `make gmail-auth` again.")
+            raise RuntimeError("Gmail token is invalid. Connect Gmail again.")
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
 

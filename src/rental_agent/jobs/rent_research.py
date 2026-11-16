@@ -146,6 +146,7 @@ def agent_options(settings: Settings) -> ClaudeAgentOptions:
         output_format={"type": "json_schema", "schema": OUTPUT_SCHEMA},
         max_turns=10,
         effort="high",
+        env=settings.claude_env,
     )
 
 

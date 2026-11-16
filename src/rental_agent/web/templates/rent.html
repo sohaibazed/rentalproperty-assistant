@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Rent · Rental Agent{% endblock %}
+{% block content %}
+<h1>Rent collected</h1>
+{% include "_db_error.html" %}{% include "_year.html" %}
+<section class="card">
+  <p><strong>{{ total | money }}</strong> in {{ year }} from {{ rows | length }} payment(s).</p>
+  <table>
+    <thead><tr><th>Date</th><th class="r">Amount</th><th>Payer</th><th>Property</th><th>Review</th></tr></thead>
+    <tbody>{% for r in rows %}<tr>
+      <td>{{ r.paid_on }}</td><td class="r">{{ r.amount | money }}</td><td>{{ r.payer or "-" }}</td>
+      <td>{{ r.address or "unmatched" }}</td><td>{% if r.needs_review %}<span class="pill failed">check</span>{% endif %}</td>
+    </tr>{% else %}<tr><td colspan="5" class="muted">No rent recorded for {{ year }}.</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+{% endblock %}

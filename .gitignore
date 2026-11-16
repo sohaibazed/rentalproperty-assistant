@@ -18,3 +18,7 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Local app state (encrypted secrets)
+data/
+*.enc

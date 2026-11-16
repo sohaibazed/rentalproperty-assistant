@@ -112,6 +112,20 @@ create table if not exists sync_runs (
   inserted     integer not null default 0
 );
 
+-- One row per job run started from the web app or its scheduler.
+create table if not exists job_runs (
+  id           bigint generated always as identity primary key,
+  job          text not null,
+  params       jsonb not null default '{}',
+  trigger      text not null default 'manual' check (trigger in ('manual', 'schedule')),
+  status       text not null default 'running' check (status in ('running', 'success', 'failed')),
+  started_at   timestamptz not null default now(),
+  finished_at  timestamptz,
+  summary      text,
+  outputs      text[],                  -- paths relative to artifacts/
+  log          text
+);
+
 -- Least-privilege role for the app. Set its password out-of-band, never in this file:
 --   alter role rental_agent with login password '<from your secrets manager>';
 do $$ begin
@@ -120,7 +134,7 @@ exception when duplicate_object then null; end $$;
 
 grant usage on schema public to rental_agent;
 grant select, insert on all tables in schema public to rental_agent;
-grant update on leases, rent_payments, expenses, rent_research, sync_runs to rental_agent;  -- no DELETE anywhere
+grant update on leases, rent_payments, expenses, rent_research, sync_runs, job_runs to rental_agent;  -- no DELETE anywhere
 grant usage on type schedule_e_category to rental_agent;
 
 -- RLS on every table. Only rental_agent gets a policy, so Supabase's anon/authenticated
@@ -129,7 +143,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['properties','tenants','leases','lease_tenants','rent_payments','expenses',
-                           'rent_research','email_ingest_log','sync_runs'] loop
+                           'rent_research','email_ingest_log','sync_runs','job_runs'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists rental_agent_all on %I', t);
     execute format('create policy rental_agent_all on %I to rental_agent using (true) with check (true)', t);

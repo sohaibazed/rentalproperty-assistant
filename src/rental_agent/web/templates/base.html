@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Rental Agent{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  {% if request.session.get("auth") %}
+  <header>
+    <a class="brand" href="/">Rental Agent</a>
+    <nav>
+      {% for href, label, tpl in [("/", "Dashboard", "dashboard.html"), ("/jobs", "Run a job", "jobs.html"),
+          ("/runs", "Runs", "runs.html"), ("/rent", "Rent", "rent.html"), ("/expenses", "Expenses", "expenses.html"),
+          ("/research", "Rent research", "research.html"), ("/leases", "Leases", "leases.html"),
+          ("/settings", "Settings", "settings.html")] %}
+        <a href="{{ href }}" {% if nav == tpl %}aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <form method="post" action="/logout"><button class="link">Sign out</button></form>
+  </header>
+  {% endif %}
+  <main>
+    {% if busy %}<p class="banner">A job is running. New jobs wait until it finishes.</p>{% endif %}
+    {% if flash %}<p class="flash {{ flash.kind }}">{{ flash.message }}</p>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

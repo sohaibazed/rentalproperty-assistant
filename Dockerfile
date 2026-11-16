@@ -1,0 +1,40 @@
+# Rental Agent web UI. Build and run with `make up`; see docker-compose.yml.
+FROM python:3.13-slim-bookworm
+
+# LibreOffice (headless) converts leases to PDF; Carlito is metric-compatible with Calibri,
+# the template's font. tzdata lets TZ pick the scheduler's local day.
+# The final cleanup only empties apt's package-list cache inside this image layer.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      libreoffice-writer-nogui fonts-crosextra-carlito fonts-dejavu-core tzdata ca-certificates \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.6 /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1
+
+WORKDIR /app
+# Dependencies first so code edits don't reinstall them.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+COPY src ./src
+COPY templates ./templates
+COPY prompts ./prompts
+COPY config ./config
+RUN uv sync --frozen --no-dev
+
+RUN useradd --create-home --uid 1000 agent \
+ && mkdir -p /data /app/artifacts /app/reference \
+ && chown agent /data /app/artifacts
+USER agent
+
+ENV PATH=/app/.venv/bin:$PATH \
+    RENTAL_DATA_DIR=/data \
+    RENTAL_ARTIFACTS_DIR=/app/artifacts \
+    RENTAL_REFERENCE_DIR=/app/reference \
+    RENTAL_EMAIL_SOURCES=/app/config/email_sources.toml
+
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/login')"
+CMD ["uvicorn", "rental_agent.web.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]

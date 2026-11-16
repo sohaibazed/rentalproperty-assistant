@@ -1,4 +1,4 @@
-"""Command-line entry point: one subcommand per job."""
+"""Command-line entry point. Job commands come from rental_agent.runner.JOBS."""
 
 import argparse
 import asyncio
@@ -7,21 +7,25 @@ import sys
 from datetime import date
 from decimal import Decimal
 
-from rental_agent import db, gmail
-from rental_agent.config import load_settings
+from rental_agent import db, gmail, runner
+from rental_agent.config import gmail_client_secrets_path, gmail_token_path, load_settings
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
-from rental_agent.jobs import email_sync, lease, rent_research, tax_report
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="rental_agent")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("gmail-auth", help="one-time Gmail read-only consent (opens a browser)")
+    for job, (help_text, params) in runner.JOBS.items():
+        cmd = sub.add_parser(job, help=help_text)
+        for p in params:
+            flag = "--" + p.name.replace("_", "-")
+            if p.kind == "bool":
+                cmd.add_argument(flag, dest=p.name, action="store_true", help=p.help)
+            else:
+                cmd.add_argument(flag, dest=p.name, required=p.required, help=p.help)
 
-    sync = sub.add_parser("sync-email", help="import rent and expense emails")
-    sync.add_argument("--since", type=date.fromisoformat, help="YYYY-MM-DD; default: last run")
-    sync.add_argument("--dry-run", action="store_true", help="print results, write nothing")
+    sub.add_parser("gmail-auth", help="one-time Gmail read-only consent (opens a browser)")
 
     add = sub.add_parser("add-expense", help="record an expense that didn't arrive by email")
     add.add_argument("--amount", type=Decimal, required=True)
@@ -32,42 +36,27 @@ def main(argv: list[str] | None = None) -> int:
     add.add_argument("--property-id", type=int, help="omit for an LLC-wide expense")
     add.add_argument("--receipt", help="path to a receipt file, relative to artifacts/")
 
-    tax = sub.add_parser("tax-report", help="year-end Schedule E summary (xlsx + csv)")
-    tax.add_argument("--year", type=int, default=date.today().year - 1,
-                     help="tax year; default: last year")
-
-    gen = sub.add_parser("generate-lease", help="yearly lease extension (.docx + .pdf)")
-    gen.add_argument("--property-id", type=int, required=True)
-    gen.add_argument("--rent", type=Decimal, help="monthly rent; default: this year's rent research")
-    gen.add_argument("--start", type=date.fromisoformat, help="default: day after current term")
-    gen.add_argument("--end", type=date.fromisoformat, help="default: one year after start")
-    gen.add_argument("--other-terms", help='e.g. "Tenant pays water."; default: None.')
-    gen.add_argument("--dry-run", action="store_true",
-                     help="write the documents but don't record the new lease term")
-
-    research = sub.add_parser("research-rent", help="recommend next year's rent from comps")
-    research.add_argument("--property-id", type=int, required=True)
-    research.add_argument("--year", type=int, help="default: year the next lease term starts")
-    research.add_argument("--dry-run", action="store_true",
-                          help="write the report but don't save the recommendation")
-
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    settings = load_settings()
 
     if args.command == "gmail-auth":
-        gmail.authorize_interactive(settings.gmail_client_secrets, settings.gmail_token_path)
-        print(f"Saved Gmail token to {settings.gmail_token_path}")
+        gmail.authorize_interactive(gmail_client_secrets_path(), gmail_token_path())
+        print(f"Saved Gmail token to {gmail_token_path()}")
         return 0
 
-    if args.command == "sync-email":
-        report = asyncio.run(email_sync.run(settings, since=args.since, dry_run=args.dry_run))
-        print(
-            f"since {report.since}: found {report.found}, rent {report.rent}, "
-            f"expenses {report.expenses}, ignored {report.ignored}, "
-            f"review {len(report.review)}, errors {len(report.errors)}"
-        )
-        return 1 if report.errors else 0
+    settings = load_settings()
+
+    if args.command in runner.JOBS:
+        try:
+            params = runner.parse_params(args.command, vars(args))
+        except ValueError as exc:
+            parser.error(str(exc))
+        outcome = asyncio.run(runner.run_job(args.command, params, settings))
+        for line in outcome.summary:
+            print(line)
+        for path in outcome.outputs:
+            print(f"Wrote {path}")
+        return 0 if outcome.ok else 1
 
     if args.command == "add-expense":
         if args.amount <= 0:
@@ -86,38 +75,6 @@ def main(argv: list[str] | None = None) -> int:
                 needs_review=False,
             )
         print("Expense recorded.")
-        return 0
-
-    if args.command == "generate-lease":
-        result = lease.run(settings, property_id=args.property_id, start=args.start, end=args.end,
-                           rent=args.rent, other_terms=args.other_terms, dry_run=args.dry_run)
-        print(f"Wrote {result.docx_path}")
-        print(f"Wrote {result.pdf_path}")
-        for warning in result.warnings:
-            print(f"- {warning}")
-        if result.lease_id is None:
-            print("Dry run: lease term not recorded.")
-        else:
-            print(f"Recorded lease term id {result.lease_id}.")
-        return 0
-
-    if args.command == "research-rent":
-        result, report = asyncio.run(rent_research.run(
-            settings, property_id=args.property_id, year=args.year, dry_run=args.dry_run))
-        print(f"Wrote {report}")
-        print(f"Recommended {result.recommended} (range {result.range_low}-{result.range_high}); "
-              f"{len(result.comps)} comps, median {result.median}")
-        for flag in result.flags:
-            print(f"- CHECK: {flag}")
-        print("Dry run: recommendation not saved." if args.dry_run else
-              "Saved; generate-lease will use this rent by default.")
-        return 0
-
-    if args.command == "tax-report":
-        report, xlsx, csv_path = tax_report.run(settings, args.year)
-        print(f"Wrote {xlsx}")
-        print(f"Wrote {csv_path}")
-        print(f"{len(report.flags)} item(s) to check on the Review sheet")
         return 0
 
     return 2

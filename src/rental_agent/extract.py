@@ -60,7 +60,9 @@ def _format_email(msg: EmailMessage) -> str:
     )
 
 
-async def extract(msg: EmailMessage, properties: list[Property], model: str) -> dict[str, Any]:
+async def extract(
+    msg: EmailMessage, properties: list[Property], model: str, env: dict[str, str]
+) -> dict[str, Any]:
     options = ClaudeAgentOptions(
         model=model,
         system_prompt=SYSTEM_PROMPT.format(properties=_format_properties(properties)),
@@ -71,6 +73,7 @@ async def extract(msg: EmailMessage, properties: list[Property], model: str) -> 
         output_format={"type": "json_schema", "schema": EXTRACTION_SCHEMA},
         max_turns=3,
         effort="medium",
+        env=env,                 # Claude credentials, never logged
     )
     result: ResultMessage | None = None
     async for message in query(prompt=_format_email(msg), options=options):

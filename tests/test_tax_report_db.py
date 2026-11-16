@@ -35,7 +35,6 @@ def test_report_from_database(tmp_path: Path):
                      (pid,))
 
     settings = Settings(model="test", db_url=DB, artifacts_dir=tmp_path, reference_dir=tmp_path,
-                        gmail_client_secrets=tmp_path, gmail_token_path=tmp_path,
                         email_sources_path=tmp_path, soffice_bin="soffice")
     report, xlsx, csv_path = tax_report.run(settings, 2025)
 

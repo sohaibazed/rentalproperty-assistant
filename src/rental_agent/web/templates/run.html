@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Run #{{ run.id }} · Rental Agent{% endblock %}
+{% block head %}{% if run.status == "running" %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block content %}
+<h1>Run #{{ run.id }}: {{ run.job }} {% with status = run.status %}{% include "_status.html" %}{% endwith %}</h1>
+<p class="muted">Started {{ run.started_at.strftime("%Y-%m-%d %H:%M:%S") }} ({{ run.trigger }})
+  {% if run.finished_at %}· finished {{ run.finished_at.strftime("%H:%M:%S") }}{% else %}· refreshing every 3 seconds{% endif %}</p>
+<div class="grid">
+  <section class="card">
+    <h2>Summary</h2>
+    {% if run.summary %}<ul>{% for line in run.summary.split("\n") %}<li>{{ line }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted">Still running…</p>{% endif %}
+  </section>
+  <section class="card">
+    <h2>Files</h2>
+    {% if run.outputs %}<ul>
+      {% for path in run.outputs %}
+        <li>{% if path.endswith(".md") %}<a href="/report/{{ path }}">{{ path }}</a> ·
+            {% endif %}<a href="/files/{{ path }}">download</a>{% if not path.endswith(".md") %} {{ path }}{% endif %}</li>
+      {% endfor %}</ul>
+    {% else %}<p class="muted">None.</p>{% endif %}
+    <h2>Options</h2>
+    <pre>{{ run.params | tojson(indent=2) }}</pre>
+  </section>
+</div>
+<section class="card">
+  <h2>Log</h2>
+  <pre class="log">{{ run.log or "(empty)" }}</pre>
+</section>
+{% endblock %}

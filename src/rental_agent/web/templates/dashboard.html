@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dashboard</h1>
+{% include "_db_error.html" %}
+<div class="grid">
+  <section class="card">
+    <h2>Setup</h2>
+    <ul class="checklist">
+      {% for label, ok in checklist %}<li class="{{ 'ok' if ok else 'todo' }}">{{ '✓' if ok else '○' }} {{ label }}</li>{% endfor %}
+    </ul>
+    <p class="muted">Next automatic email sync: {{ next_sync.strftime("%B %-d, %Y") }}</p>
+  </section>
+  {% if totals %}
+  <section class="card stats">
+    <h2>{{ year }} so far</h2>
+    <div><span class="num">{{ totals.rent | money }}</span><span class="muted">rent collected</span></div>
+    <div><span class="num">{{ totals.expenses | money }}</span><span class="muted">expenses</span></div>
+    <div><span class="num">{{ totals.needs_review }}</span><span class="muted">items to review</span></div>
+  </section>
+  {% endif %}
+</div>
+<section class="card">
+  <h2>Recent runs</h2>
+  {% include "_runs_table.html" %}
+</section>
+{% endblock %}

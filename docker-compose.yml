@@ -1,0 +1,37 @@
+# Start with `make up` (reads the key and password from your macOS Keychain).
+services:
+  rental-agent:
+    build: .
+    image: rental-agent:local
+    container_name: rental-agent
+    ports:
+      - "127.0.0.1:8080:8080"          # this Mac only; not reachable from your network
+    environment:
+      RENTAL_SECRET_KEY_FILE: /run/secrets/rental_secret_key
+      RENTAL_UI_PASSWORD_FILE: /run/secrets/rental_ui_password
+      RENTAL_PUBLIC_URL: http://localhost:8080
+      TZ: America/Chicago              # Plano, TX: the scheduler's "today"
+    secrets:
+      - rental_secret_key
+      - rental_ui_password
+    volumes:
+      - rental-data:/data              # encrypted secrets file
+      - ./artifacts:/app/artifacts     # reports, leases, receipts (shared with your Mac)
+      - ./reference:/app/reference:ro
+      - ./config:/app/config:ro        # email_sources.toml
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/agent
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+secrets:
+  rental_secret_key:
+    environment: RENTAL_SECRET_KEY
+  rental_ui_password:
+    environment: RENTAL_UI_PASSWORD
+
+volumes:
+  rental-data:

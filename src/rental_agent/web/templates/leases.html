@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Leases · Rental Agent{% endblock %}
+{% block content %}
+<h1>Leases</h1>
+{% include "_db_error.html" %}
+<section class="card">
+  <h2>Properties</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Address</th><th>Type</th><th>Beds</th><th>Baths</th><th>Sq ft</th></tr></thead>
+    <tbody>{% for p in props %}<tr><td>{{ p.id }}</td><td>{{ p.address }}{% if p.unit %}, {{ p.unit }}{% endif %}, {{ p.city }} {{ p.zip }}</td>
+      <td>{{ p.property_type or "-" }}</td><td>{{ p.beds or "-" }}</td><td>{{ p.baths or "-" }}</td><td>{{ p.sqft or "-" }}</td></tr>
+    {% else %}<tr><td colspan="6" class="muted">No properties yet.</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+<section class="card">
+  <h2>Lease terms</h2>
+  <table>
+    <thead><tr><th>Property</th><th>Term</th><th class="r">Rent</th><th>Tenants</th><th>Documents</th></tr></thead>
+    <tbody>{% for l in rows %}<tr>
+      <td>{{ l.address }}</td><td>{{ l.start_date }} → {{ l.end_date }}</td><td class="r">{{ l.monthly_rent | money }}</td>
+      <td>{{ l.tenants or "-" }}</td>
+      <td>{% if l.pdf_path %}<a href="/files/{{ l.pdf_path }}">PDF</a>{% endif %}
+          {% if l.docx_path %}<a href="/files/{{ l.docx_path }}">Word</a>{% endif %}</td>
+    </tr>{% else %}<tr><td colspan="5" class="muted">No leases yet.</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+{% endblock %}

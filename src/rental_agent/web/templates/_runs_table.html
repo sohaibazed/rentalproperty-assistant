@@ -1,0 +1,17 @@
+{% if runs %}
+<table>
+  <thead><tr><th>#</th><th>Job</th><th>Started</th><th>Trigger</th><th>Status</th><th>Summary</th></tr></thead>
+  <tbody>
+  {% for r in runs %}
+    <tr>
+      <td><a href="/runs/{{ r.id }}">{{ r.id }}</a></td>
+      <td>{{ r.job }}</td>
+      <td>{{ r.started_at.strftime("%Y-%m-%d %H:%M") }}</td>
+      <td>{{ r.trigger }}</td>
+      <td>{% with status = r.status %}{% include "_status.html" %}{% endwith %}</td>
+      <td class="clip">{{ (r.summary or "").split("\n")[0] }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="muted">No runs yet.</p>{% endif %}

@@ -1,0 +1,11 @@
+# Keep secrets, private documents and local state out of the image.
+.git
+.venv
+.env*
+data/
+artifacts/
+reference/
+tests/
+**/__pycache__
+*.enc
+.DS_Store
