@@ -5,6 +5,7 @@
 data/
 artifacts/
 reference/
+memory/
 tests/
 **/__pycache__
 *.enc

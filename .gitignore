@@ -19,6 +19,7 @@ __pycache__/
 # macOS
 .DS_Store
 
-# Local app state (encrypted secrets)
+# Local app state (encrypted secrets, chat session files) and your memory rules
 data/
+memory/
 *.enc

@@ -1,0 +1,335 @@
+"""One chat turn with the assistant (Claude Agent SDK).
+
+Tools:
+- read-only data lookups (rent, expenses, leases, research, job runs, properties);
+- WebSearch / WebFetch for questions like local rental rules;
+- propose_expense / propose_job / propose_memory, which only record a *proposal*. The web app
+  shows each as a card; nothing is saved, run or remembered until the owner clicks.
+Attachments are sent to the model as content blocks; the agent has no file or shell tools.
+"""
+
+import base64
+import json
+import uuid
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from typing import Any
+
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    StreamEvent,
+    TextBlock,
+    ToolUseBlock,
+    create_sdk_mcp_server,
+    query,
+    tool,
+)
+
+from rental_agent import db, memory, prompts, runner
+from rental_agent.config import Settings, data_dir
+from rental_agent.extract import SCHEDULE_E_CATEGORIES
+
+MODELS = {
+    "claude-opus-5-5": "Opus 5.5",
+    "claude-sonnet-5-5": "Sonnet 5.5",
+    "claude-haiku-5-5": "Haiku 5.5",
+}
+DEFAULT_MODEL = "claude-opus-5-5"
+
+IMAGE_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+               ".gif": "image/gif", ".webp": "image/webp"}
+TEXT_TYPES = {".txt", ".csv", ".md"}
+UPLOAD_TYPES = set(IMAGE_TYPES) | TEXT_TYPES | {".pdf"}
+MAGIC = {".pdf": [b"%PDF"], ".png": [b"\x89PNG"], ".jpg": [b"\xff\xd8\xff"],
+         ".jpeg": [b"\xff\xd8\xff"], ".gif": [b"GIF8"], ".webp": [b"RIFF"]}
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_EXPENSE = Decimal(100000)
+
+TOOL_LABELS = {"WebSearch": "Searching the web", "WebFetch": "Reading a web page"}
+
+
+def check_upload(name: str, data: bytes) -> str:
+    """Return the lowercase extension if the file is an allowed, non-empty, plausible upload."""
+    ext = Path(name).suffix.lower()
+    if ext not in UPLOAD_TYPES:
+        raise ValueError(f"{name}: only images (JPG, PNG, GIF, WebP), PDF, TXT, CSV or MD files")
+    if not data:
+        raise ValueError(f"{name} is empty")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ValueError(f"{name} is larger than 20 MB")
+    if ext in MAGIC and not any(data.startswith(m) for m in MAGIC[ext]):
+        raise ValueError(f"{name} doesn't look like a real {ext[1:].upper()} file")
+    return ext
+
+
+@dataclass
+class TurnResult:
+    text: str
+    proposals: list[dict[str, Any]] = field(default_factory=list)
+    session_id: str | None = None
+    error: str | None = None
+
+
+def _rows(rows: Any) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": json.dumps(rows, default=str)}]}
+
+
+def _err(message: str) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": message}], "is_error": True}
+
+
+def validate_expense(args: dict[str, Any], property_ids: set[int], attachments: set[str],
+                     today: date) -> dict[str, Any]:
+    try:
+        spent_on = date.fromisoformat(str(args["date"]))
+        amount = Decimal(str(args["amount"])).quantize(Decimal("0.01"))
+    except (KeyError, ValueError, InvalidOperation):
+        raise ValueError("date must be YYYY-MM-DD and amount a number") from None
+    if spent_on > today or today - spent_on > timedelta(days=730):
+        raise ValueError(f"date {spent_on} must be within the last two years")
+    if not Decimal(0) < amount <= MAX_EXPENSE:
+        raise ValueError("amount must be positive and under $100,000")
+    category = args.get("category")
+    if category not in SCHEDULE_E_CATEGORIES:
+        raise ValueError(f"category must be one of {', '.join(SCHEDULE_E_CATEGORIES)}")
+    property_id = args.get("property_id")
+    if property_id is not None and property_id not in property_ids:
+        raise ValueError(f"unknown property_id {property_id}")
+    receipt = args.get("receipt") or None
+    if receipt is not None and receipt not in attachments:
+        raise ValueError("receipt must be one of this message's attachment paths, or null")
+    return {"date": spent_on.isoformat(), "amount": str(amount),
+            "vendor": (args.get("vendor") or "").strip()[:200] or None,
+            "category": category, "property_id": property_id,
+            "description": (args.get("description") or "").strip()[:500] or None,
+            "receipt": receipt}
+
+
+def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments: set[str]):
+    def connect():
+        return db.connect(settings.db_url)
+
+    def propose(kind: str, data: dict[str, Any]) -> dict[str, Any]:
+        proposals.append({"id": uuid.uuid4().hex[:10], "kind": kind, "status": "pending",
+                          "data": data})
+        return {"content": [{"type": "text", "text":
+                "Shown to the owner as a card. Nothing has happened yet; it takes effect only "
+                "if they click to confirm."}]}
+
+    year_schema = {"type": "object", "properties": {"year": {"type": "integer"}},
+                   "required": ["year"]}
+    none_schema = {"type": "object", "properties": {}}
+
+    @tool("year_summary", "Rent collected, expenses by Schedule E category, and items needing "
+          "review, for one year.", year_schema)
+    async def year_summary(args):
+        with connect() as conn:
+            totals = db.year_totals(conn, args["year"])
+            by_cat: dict[str, Decimal] = {}
+            for e in db.expenses_list(conn, args["year"]):
+                by_cat[e["category"]] = by_cat.get(e["category"], Decimal(0)) + e["amount"]
+        return _rows({**totals, "expenses_by_category": by_cat})
+
+    @tool("list_rent_payments", "Rent payments recorded in a year.", year_schema)
+    async def list_rent_payments(args):
+        with connect() as conn:
+            return _rows(db.rent_payments_for_year(conn, args["year"]))
+
+    @tool("list_expenses", "Expenses recorded in a year.", year_schema)
+    async def list_expenses(args):
+        with connect() as conn:
+            return _rows(db.expenses_list(conn, args["year"]))
+
+    @tool("list_leases", "All lease terms with rent, dates and tenants.", none_schema)
+    async def list_leases(args):
+        with connect() as conn:
+            return _rows(db.leases_list(conn))
+
+    @tool("list_rent_research", "Saved rent recommendations by year.", none_schema)
+    async def list_rent_research(args):
+        with connect() as conn:
+            return _rows(db.rent_research_list(conn))
+
+    @tool("list_properties", "Properties with ids, address, type, beds, baths, sq ft.",
+          none_schema)
+    async def list_properties(args):
+        with connect() as conn:
+            return _rows(db.properties_list(conn))
+
+    @tool("list_job_runs", "Recent agent job runs with status and summary.", none_schema)
+    async def list_job_runs(args):
+        with connect() as conn:
+            return _rows(db.job_runs(conn, limit=20))
+
+    @tool("propose_expense", "Show the owner an expense card to confirm (e.g. from a receipt). "
+          "Does not save anything.", {
+              "type": "object",
+              "properties": {
+                  "date": {"type": "string", "description": "YYYY-MM-DD"},
+                  "amount": {"type": "number"},
+                  "vendor": {"type": "string"},
+                  "category": {"type": "string", "enum": SCHEDULE_E_CATEGORIES},
+                  "property_id": {"type": ["integer", "null"],
+                                  "description": "null for an LLC-wide expense"},
+                  "description": {"type": "string"},
+                  "receipt": {"type": ["string", "null"],
+                              "description": "attachment path from this message, or null"},
+              },
+              "required": ["date", "amount", "vendor", "category", "property_id",
+                           "description", "receipt"]})
+    async def propose_expense(args):
+        with connect() as conn:
+            property_ids = {p["id"] for p in db.properties_list(conn)}
+        try:
+            data = validate_expense(args, property_ids, attachments, date.today())
+        except ValueError as exc:
+            return _err(f"Not proposed: {exc}")
+        return propose("expense", data)
+
+    @tool("propose_job", "Show the owner a card to run one agent job. Jobs: "
+          + "; ".join(f"{name}: {desc} (options: {', '.join(p.name for p in ps)})"
+                      for name, (desc, ps) in runner.JOBS.items())
+          + ". Does not run anything.", {
+              "type": "object",
+              "properties": {"job": {"type": "string", "enum": list(runner.JOBS)},
+                             "options": {"type": "object"}},
+              "required": ["job", "options"]})
+    async def propose_job(args):
+        job, options = args.get("job"), args.get("options") or {}
+        try:
+            runner.parse_params(job, {k: ("on" if v is True else "" if v in (None, False) else str(v))
+                                      for k, v in options.items()})
+        except ValueError as exc:
+            return _err(f"Not proposed: {exc}")
+        return propose("job", {"job": job, "options": {k: v for k, v in options.items()}})
+
+    @tool("propose_memory", "Show the owner a card to add one standing rule to memory.md.",
+          {"type": "object", "properties": {"rule": {"type": "string"}}, "required": ["rule"]})
+    async def propose_memory(args):
+        rule = " ".join(str(args.get("rule", "")).split())
+        if not rule or len(rule) > 500:
+            return _err("Not proposed: the rule must be 1-500 characters")
+        return propose("memory", {"rule": rule})
+
+    return [year_summary, list_rent_payments, list_expenses, list_leases, list_rent_research,
+            list_properties, list_job_runs, propose_expense, propose_job, propose_memory]
+
+
+def build_tools(settings: Settings, proposals: list[dict[str, Any]], attachments: set[str]):
+    tools = make_tools(settings, proposals, attachments)
+    return create_sdk_mcp_server("rental", tools=tools), [f"mcp__rental__{t.name}" for t in tools]
+
+
+def system_prompt(settings: Settings) -> str:
+    with db.connect(settings.db_url) as conn:
+        props = db.properties_list(conn)
+    listing = "\n".join(f"- id {p['id']}: {p['address']}, {p['city']} {p['zip']} "
+                        f"({p['property_type'] or 'type unknown'})" for p in props) or "(none yet)"
+    return prompts.get("chat-assistant").format(today=f"{date.today():%A, %B %-d, %Y}",
+                                                properties=listing) + memory.prompt_section()
+
+
+def content_blocks(text: str, files: list[tuple[str, Path]]) -> list[dict[str, Any]]:
+    """files: (relative path shown to the model, absolute path)."""
+    blocks: list[dict[str, Any]] = []
+    for rel, path in files:
+        ext = path.suffix.lower()
+        if ext in IMAGE_TYPES:
+            blocks.append({"type": "image", "source": {"type": "base64", "media_type": IMAGE_TYPES[ext],
+                           "data": base64.b64encode(path.read_bytes()).decode()}})
+        elif ext == ".pdf":
+            blocks.append({"type": "document", "source": {"type": "base64",
+                           "media_type": "application/pdf",
+                           "data": base64.b64encode(path.read_bytes()).decode()}, "title": rel})
+        else:
+            blocks.append({"type": "text", "text": f"<attachment name=\"{rel}\">\n"
+                           f"{path.read_text(errors='replace')}\n</attachment>"})
+    names = "\n".join(f"- {rel}" for rel, _ in files)
+    note = f"\n\n[Attached files (use these paths as `receipt`):\n{names}]" if files else ""
+    blocks.append({"type": "text", "text": (text or "(no message)") + note})
+    return blocks
+
+
+async def _one_message(blocks: list[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:
+    yield {"type": "user", "message": {"role": "user", "content": blocks},
+           "parent_tool_use_id": None}
+
+
+async def run_turn(
+    settings: Settings,
+    *,
+    model: str,
+    text: str,
+    files: list[tuple[str, Path]],
+    session_id: str | None,
+    history: str,
+    on_text: Callable[[str], None],
+    on_status: Callable[[str], None],
+) -> TurnResult:
+    """Run one turn. Resumes the SDK session when possible; otherwise starts fresh with the
+    saved history as context."""
+    if model not in MODELS:
+        raise ValueError(f"Unknown model {model}")
+    proposals: list[dict[str, Any]] = []
+    server, tool_names = build_tools(settings, proposals, {rel for rel, _ in files})
+    sdk_home = data_dir() / "claude"
+    sdk_home.mkdir(parents=True, exist_ok=True)
+    workdir = data_dir() / "chat-workdir"
+    workdir.mkdir(parents=True, exist_ok=True)
+    base = {
+        "model": model,
+        "system_prompt": system_prompt(settings),
+        "mcp_servers": {"rental": server},
+        "tools": ["WebSearch", "WebFetch"],
+        "allowed_tools": ["WebSearch", "WebFetch", *tool_names],
+        "permission_mode": "dontAsk",
+        "setting_sources": [],
+        "include_partial_messages": True,
+        "max_turns": 25,
+        "cwd": str(workdir),
+        "env": {**settings.claude_env, "CLAUDE_CONFIG_DIR": str(sdk_home)},
+    }
+
+    async def attempt(resume: str | None, prompt_text: str) -> TurnResult:
+        parts: list[str] = []
+        live = ""
+        result: ResultMessage | None = None
+        async for msg in query(prompt=_one_message(content_blocks(prompt_text, files)),
+                               options=ClaudeAgentOptions(resume=resume, **base)):
+            if isinstance(msg, StreamEvent) and msg.parent_tool_use_id is None:
+                ev = msg.event
+                if ev.get("type") == "content_block_delta" and ev["delta"].get("type") == "text_delta":
+                    live += ev["delta"]["text"]
+                    on_text("\n\n".join([*parts, live]) if parts else live)
+            elif isinstance(msg, AssistantMessage) and msg.parent_tool_use_id is None:
+                for block in msg.content:
+                    if isinstance(block, TextBlock) and block.text.strip():
+                        parts.append(block.text.strip())
+                    elif isinstance(block, ToolUseBlock):
+                        on_status(TOOL_LABELS.get(block.name, "Checking your records"))
+                live = ""
+            elif isinstance(msg, ResultMessage):
+                result = msg
+        if result is None or result.is_error:
+            detail = (result.errors or [result.subtype]) if result else ["no result"]
+            return TurnResult("\n\n".join(parts), proposals, getattr(result, "session_id", None),
+                              error="; ".join(str(d) for d in detail))
+        return TurnResult("\n\n".join(parts), proposals, result.session_id)
+
+    if session_id:
+        try:
+            first = await attempt(session_id, text)
+            if not first.error or first.text:
+                return first
+        except Exception:  # noqa: BLE001 — session files gone (e.g. new volume): start fresh
+            proposals.clear()
+    prefix = f"Earlier in this chat:\n{history}\n\n---\n\n" if history else ""
+    try:
+        return await attempt(None, prefix + text)
+    except Exception as exc:  # noqa: BLE001 — shown to the owner in the chat
+        return TurnResult("", proposals, None, error=f"{type(exc).__name__}: {exc}")

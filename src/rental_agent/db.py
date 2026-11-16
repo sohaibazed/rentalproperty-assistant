@@ -435,3 +435,61 @@ def leases_list(conn: psycopg.Connection) -> list[dict]:
 def properties_list(conn: psycopg.Connection) -> list[dict]:
     return _dicts(conn, """select id, address, unit, city, state, zip, property_type, beds,
                                   baths, sqft from properties order by id""")
+
+
+# --- Chat history -------------------------------------------------------------------------
+
+
+def create_chat(conn: psycopg.Connection, title: str, model: str) -> int:
+    return conn.execute("insert into chats (title, model) values (%s, %s) returning id",
+                        (title, model)).fetchone()[0]
+
+
+def add_chat_message(conn: psycopg.Connection, chat_id: int, role: str, content: str, *,
+                     attachments: list[str] | None = None, proposals_json: str = "[]",
+                     model: str | None = None) -> int:
+    msg_id = conn.execute(
+        """insert into chat_messages (chat_id, role, content, attachments, proposals, model)
+           values (%s, %s, %s, %s, %s::jsonb, %s) returning id""",
+        (chat_id, role, content, attachments or None, proposals_json, model),
+    ).fetchone()[0]
+    conn.execute("update chats set updated_at = now() where id = %s", (chat_id,))
+    return msg_id
+
+
+def update_chat(conn: psycopg.Connection, chat_id: int, *, model: str,
+                sdk_session_id: str | None) -> None:
+    conn.execute("""update chats set model = %s, updated_at = now(),
+                    sdk_session_id = coalesce(%s, sdk_session_id) where id = %s""",
+                 (model, sdk_session_id, chat_id))
+
+
+def chats_list(conn: psycopg.Connection, search: str | None = None, limit: int = 100) -> list[dict]:
+    if search:
+        like = f"%{search}%"
+        return _dicts(conn, """select c.id, c.title, c.updated_at from chats c
+                               where c.title ilike %s or exists (select 1 from chat_messages m
+                                 where m.chat_id = c.id and m.content ilike %s)
+                               order by c.updated_at desc limit %s""", (like, like, limit))
+    return _dicts(conn, "select id, title, updated_at from chats order by updated_at desc limit %s",
+                  (limit,))
+
+
+def chat(conn: psycopg.Connection, chat_id: int) -> dict | None:
+    rows = _dicts(conn, "select * from chats where id = %s", (chat_id,))
+    return rows[0] if rows else None
+
+
+def chat_messages(conn: psycopg.Connection, chat_id: int) -> list[dict]:
+    return _dicts(conn, "select * from chat_messages where chat_id = %s order by id", (chat_id,))
+
+
+def chat_message(conn: psycopg.Connection, chat_id: int, msg_id: int) -> dict | None:
+    rows = _dicts(conn, "select * from chat_messages where chat_id = %s and id = %s",
+                  (chat_id, msg_id))
+    return rows[0] if rows else None
+
+
+def set_message_proposals(conn: psycopg.Connection, msg_id: int, proposals_json: str) -> None:
+    conn.execute("update chat_messages set proposals = %s::jsonb where id = %s",
+                 (proposals_json, msg_id))

@@ -6,13 +6,12 @@ on the data volume; the key never does. Saved values are never sent back to the 
 """
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from rental_agent.config import env_or_file
+from rental_agent.config import data_dir, env_or_file
 
 
 @dataclass(frozen=True)
@@ -54,8 +53,7 @@ class SecretStore:
         key = env_or_file("RENTAL_SECRET_KEY")
         if not key:
             raise RuntimeError("RENTAL_SECRET_KEY is not set; run `make init-keys`, then `make up`")
-        data_dir = Path(os.environ.get("RENTAL_DATA_DIR", "./data"))
-        return cls(data_dir / "secrets.enc", key)
+        return cls(data_dir() / "secrets.enc", key)
 
     def load(self) -> dict[str, str]:
         if not self.path.exists():

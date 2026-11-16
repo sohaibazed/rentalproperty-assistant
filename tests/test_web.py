@@ -118,7 +118,9 @@ def test_report_html_is_escaped(client, env):
 def test_security_headers(client):
     r = client.get("/settings")
     assert "default-src 'none'" in r.headers["content-security-policy"]
-    assert "script-src" not in r.headers["content-security-policy"]
+    csp = r.headers["content-security-policy"]
+    assert "script-src 'self';" in csp                    # only this app's own script files
+    assert "unsafe-inline" not in csp and "unsafe-eval" not in csp
 
 
 def test_next_sync_date():

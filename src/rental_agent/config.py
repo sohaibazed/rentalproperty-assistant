@@ -27,6 +27,11 @@ def _path(name: str, default: str) -> Path:
     return Path(os.environ.get(name, default)).expanduser().resolve()
 
 
+def data_dir() -> Path:
+    """Local app state: encrypted secrets, the chat's SDK session files."""
+    return _path("RENTAL_DATA_DIR", "./data")
+
+
 def artifacts_dir() -> Path:
     return _path("RENTAL_ARTIFACTS_DIR", "./artifacts")
 

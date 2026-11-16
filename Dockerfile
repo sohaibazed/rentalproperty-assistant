@@ -24,15 +24,16 @@ COPY config ./config
 RUN uv sync --frozen --no-dev
 
 RUN useradd --create-home --uid 1000 agent \
- && mkdir -p /data /app/artifacts /app/reference \
- && chown agent /data /app/artifacts
+ && mkdir -p /data /app/artifacts /app/reference /app/memory \
+ && chown agent /data /app/artifacts /app/memory
 USER agent
 
 ENV PATH=/app/.venv/bin:$PATH \
     RENTAL_DATA_DIR=/data \
     RENTAL_ARTIFACTS_DIR=/app/artifacts \
     RENTAL_REFERENCE_DIR=/app/reference \
-    RENTAL_EMAIL_SOURCES=/app/config/email_sources.toml
+    RENTAL_EMAIL_SOURCES=/app/config/email_sources.toml \
+    RENTAL_MEMORY_FILE=/app/memory/memory.md
 
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \

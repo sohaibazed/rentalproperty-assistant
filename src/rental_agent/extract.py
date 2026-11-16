@@ -8,7 +8,7 @@ from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
-from rental_agent import prompts
+from rental_agent import memory, prompts
 from rental_agent.db import Property
 from rental_agent.gmail import EmailMessage
 
@@ -65,7 +65,8 @@ async def extract(
 ) -> dict[str, Any]:
     options = ClaudeAgentOptions(
         model=model,
-        system_prompt=SYSTEM_PROMPT.format(properties=_format_properties(properties)),
+        system_prompt=SYSTEM_PROMPT.format(properties=_format_properties(properties))
+        + memory.prompt_section(),
         tools=[],                # no built-in tools at all
         allowed_tools=[],
         permission_mode="dontAsk",

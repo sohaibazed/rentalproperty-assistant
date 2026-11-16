@@ -1,7 +1,9 @@
 """Web UI: run jobs, browse results, manage secrets. Start with `make up` (Docker).
 
-Security: password login, POSTs must come from this site (Origin check), no JavaScript
-(strict CSP), secrets never rendered back, file downloads limited to artifacts/.
+Security: password login, POSTs must come from this site (Origin check), scripts only from
+this app's own static files (strict CSP, no inline script), model output rendered as escaped
+Markdown with http(s)/mailto links only, secrets never rendered back, file downloads limited
+to artifacts/.
 Bind to localhost only; docker-compose publishes 127.0.0.1:8080.
 """
 
@@ -11,6 +13,7 @@ import hashlib
 import hmac
 import html
 import os
+import re
 import secrets as pysecrets
 import time
 from datetime import date
@@ -27,6 +30,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from rental_agent import db, gmail, runner
 from rental_agent.config import artifacts_dir, env_or_file
+from rental_agent.web import chat_views
 from rental_agent.web.jobs import JobManager, next_sync_date, scheduler
 from rental_agent.web.secrets import GMAIL_TOKEN, SECRETS, SecretStore
 
@@ -35,9 +39,11 @@ PUBLIC_PATHS = {"/login", "/static/style.css"}
 OAUTH_TTL_SECONDS = 600
 
 
-def create_app(store: SecretStore | None = None, manager: JobManager | None = None) -> FastAPI:
+def create_app(store: SecretStore | None = None, manager: JobManager | None = None,
+               chats: chat_views.ChatManager | None = None) -> FastAPI:
     store = store or SecretStore.from_env()
     manager = manager or JobManager(store)
+    chats = chats or chat_views.ChatManager(store)
     password = env_or_file("RENTAL_UI_PASSWORD")
     if not password:
         raise RuntimeError("RENTAL_UI_PASSWORD is not set; run `make init-keys`, then `make up`")
@@ -73,7 +79,8 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
             return RedirectResponse("/login", status_code=303)
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self' "
+            "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; "
+            "img-src 'self'; form-action 'self' "
             "https://accounts.google.com; frame-ancestors 'none'; base-uri 'none'")
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
@@ -121,9 +128,12 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         request.session.clear()
         return RedirectResponse("/login", status_code=303)
 
+    chat_views.register(app, store=store, jobs=manager, chats=chats, page=page, flash=flash,
+                        connect=connect, render_markdown=render_markdown)
+
     # --- Dashboard ----------------------------------------------------------------------------
 
-    @app.get("/", response_class=HTMLResponse)
+    @app.get("/dashboard", response_class=HTMLResponse)
     async def dashboard(request: Request):
         status = store.status()
         checklist = [
@@ -225,8 +235,7 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         file = _artifact(path)
         if file.suffix != ".md":
             raise HTTPException(404)
-        # Escape first: reports quote text from web pages, which must not become HTML.
-        body = markdown.markdown(html.escape(file.read_text()), extensions=["tables"])
+        body = render_markdown(file.read_text())
         return page(request, "report.html", title=file.stem, body=body, path=path)
 
     @app.get("/leases", response_class=HTMLResponse)
@@ -305,6 +314,24 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         return RedirectResponse("/settings", status_code=303)
 
     return app
+
+
+_HREF = re.compile(r'href="([^"]*)"')
+
+
+def render_markdown(text: str) -> str:
+    """Markdown for model-written or web-sourced text. Escapes HTML first so nothing in the
+    text becomes markup, then keeps only http(s), mailto and in-app links."""
+    out = markdown.markdown(html.escape(text, quote=False),
+                            extensions=["tables", "fenced_code", "sane_lists"])
+
+    def link(m: re.Match) -> str:
+        url = html.unescape(m.group(1))
+        if re.match(r"(https?:|mailto:|/(?!/))", url):
+            return f'href="{m.group(1)}" rel="noopener noreferrer" target="_blank"'
+        return 'href="#"'
+
+    return _HREF.sub(link, out)
 
 
 def _same_origin(request: Request) -> bool:

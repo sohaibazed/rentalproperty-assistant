@@ -126,6 +126,29 @@ create table if not exists job_runs (
   log          text
 );
 
+-- Chat history. Proposals are actions the assistant suggested (save an expense, run a job,
+-- add a memory rule); they only take effect when the owner clicks to confirm.
+create table if not exists chats (
+  id              bigint generated always as identity primary key,
+  title           text not null,
+  model           text not null,
+  sdk_session_id  text,                 -- lets a reopened chat continue with full context
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create table if not exists chat_messages (
+  id           bigint generated always as identity primary key,
+  chat_id      bigint not null references chats(id),
+  role         text not null check (role in ('user', 'assistant')),
+  content      text not null,
+  attachments  text[],                  -- paths relative to artifacts/
+  proposals    jsonb not null default '[]',
+  model        text,
+  created_at   timestamptz not null default now()
+);
+create index if not exists chat_messages_chat_id on chat_messages (chat_id, id);
+
 -- Least-privilege role for the app. Set its password out-of-band, never in this file:
 --   alter role rental_agent with login password '<from your secrets manager>';
 do $$ begin
@@ -134,7 +157,8 @@ exception when duplicate_object then null; end $$;
 
 grant usage on schema public to rental_agent;
 grant select, insert on all tables in schema public to rental_agent;
-grant update on leases, rent_payments, expenses, rent_research, sync_runs, job_runs to rental_agent;  -- no DELETE anywhere
+grant update on leases, rent_payments, expenses, rent_research, sync_runs, job_runs,
+  chats, chat_messages to rental_agent;  -- no DELETE anywhere
 grant usage on type schedule_e_category to rental_agent;
 
 -- RLS on every table. Only rental_agent gets a policy, so Supabase's anon/authenticated
@@ -143,7 +167,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['properties','tenants','leases','lease_tenants','rent_payments','expenses',
-                           'rent_research','email_ingest_log','sync_runs','job_runs'] loop
+                           'rent_research','email_ingest_log','sync_runs','job_runs','chats','chat_messages'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists rental_agent_all on %I', t);
     execute format('create policy rental_agent_all on %I to rental_agent using (true) with check (true)', t);

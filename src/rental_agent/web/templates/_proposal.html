@@ -1,0 +1,54 @@
+{% set action = "/c/%d/m/%d/p/%s" % (chat.id, m.id, p.id) %}
+<div class="card proposal {{ p.status }}">
+  {% if p.kind == "expense" %}
+    <h4>{{ "Expense to save" if p.status == "pending" else "Expense" }}</h4>
+    {% if p.status == "pending" %}
+      <form method="post" action="{{ action }}" class="grid-form">
+        <label>Date <input type="date" name="date" value="{{ p.data.date }}" required></label>
+        <label>Amount <input type="number" name="amount" step="0.01" min="0.01" value="{{ p.data.amount }}" required></label>
+        <label>Vendor <input name="vendor" value="{{ p.data.vendor or '' }}"></label>
+        <label>Category
+          <select name="category">{% for c in categories %}<option value="{{ c }}" {% if c == p.data.category %}selected{% endif %}>{{ c.replace("_", " ") }}</option>{% endfor %}</select>
+        </label>
+        <label>Property
+          <select name="property_id">
+            <option value="" {% if p.data.property_id is none %}selected{% endif %}>LLC-wide</option>
+            {% for pr in properties %}<option value="{{ pr.id }}" {% if pr.id == p.data.property_id %}selected{% endif %}>{{ pr.address }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="wide">Note <input name="description" value="{{ p.data.description or '' }}"></label>
+        {% if p.data.receipt %}<p class="wide small">Receipt: <a href="/files/{{ p.data.receipt }}">{{ p.data.receipt.split("/")[-1] }}</a></p>{% endif %}
+        <div class="row wide">
+          <button name="action" value="confirm">Save expense</button>
+          <button name="action" value="dismiss" class="secondary" formnovalidate>Dismiss</button>
+        </div>
+      </form>
+    {% else %}
+      <p class="small">{{ p.data.date }} · {{ "$%.2f" % (p.data.amount | float) }} · {{ p.data.vendor or "-" }} · {{ p.data.category.replace("_", " ") }}</p>
+    {% endif %}
+  {% elif p.kind == "job" %}
+    <h4>Run {{ p.data.job }}</h4>
+    <p class="small muted">{% for k, v in p.data.options.items() %}{{ k }}: {{ v }}{% if not loop.last %} · {% endif %}{% else %}default options{% endfor %}</p>
+    {% if p.status == "pending" %}
+      <form method="post" action="{{ action }}" class="row">
+        <button name="action" value="confirm">Run it</button>
+        <button name="action" value="dismiss" class="secondary">Dismiss</button>
+      </form>
+    {% endif %}
+  {% elif p.kind == "memory" %}
+    <h4>Add to memory</h4>
+    {% if p.status == "pending" %}
+      <form method="post" action="{{ action }}">
+        <input name="rule" value="{{ p.data.rule }}" aria-label="Rule">
+        <div class="row">
+          <button name="action" value="confirm">Add rule</button>
+          <button name="action" value="dismiss" class="secondary">Dismiss</button>
+        </div>
+      </form>
+    {% else %}<p class="small">{{ p.data.rule }}</p>{% endif %}
+  {% endif %}
+  {% if p.status != "pending" %}
+    <p class="small {{ 'ok' if p.status == 'done' else 'muted' }}">{{ p.result }}
+      {% if p.run_id %}<a href="/runs/{{ p.run_id }}">Open run</a>{% endif %}</p>
+  {% endif %}
+</div>

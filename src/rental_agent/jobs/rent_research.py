@@ -21,7 +21,7 @@ from typing import Any
 
 from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ResultMessage, query
 
-from rental_agent import db, prompts
+from rental_agent import db, memory, prompts
 from rental_agent.config import Settings
 from rental_agent.jobs.lease import NOTICE_DAYS, long_date, money
 
@@ -126,11 +126,11 @@ class Research:
 def agent_options(settings: Settings) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         model=settings.model,
-        system_prompt=MAIN_PROMPT,
+        system_prompt=MAIN_PROMPT + memory.prompt_section(),
         agents={
             "comps-researcher": AgentDefinition(
                 description=prompts.get("comps-researcher-description").strip(),
-                prompt=COMPS_RESEARCHER_PROMPT,
+                prompt=COMPS_RESEARCHER_PROMPT + memory.prompt_section(),
                 tools=["WebSearch", "WebFetch"],
                 model="inherit",
                 maxTurns=25,

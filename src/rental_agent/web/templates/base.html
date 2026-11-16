@@ -8,14 +8,15 @@
   {% block head %}{% endblock %}
 </head>
 <body>
+  {% block body %}
   {% if request.session.get("auth") %}
   <header>
     <a class="brand" href="/">Rental Agent</a>
     <nav>
-      {% for href, label, tpl in [("/", "Dashboard", "dashboard.html"), ("/jobs", "Run a job", "jobs.html"),
+      {% for href, label, tpl in [("/", "Chat", "chat.html"), ("/dashboard", "Dashboard", "dashboard.html"), ("/jobs", "Run a job", "jobs.html"),
           ("/runs", "Runs", "runs.html"), ("/rent", "Rent", "rent.html"), ("/expenses", "Expenses", "expenses.html"),
           ("/research", "Rent research", "research.html"), ("/leases", "Leases", "leases.html"),
-          ("/settings", "Settings", "settings.html")] %}
+          ("/memory", "Memory", "memory.html"), ("/settings", "Settings", "settings.html")] %}
         <a href="{{ href }}" {% if nav == tpl %}aria-current="page"{% endif %}>{{ label }}</a>
       {% endfor %}
     </nav>
@@ -27,5 +28,6 @@
     {% if flash %}<p class="flash {{ flash.kind }}">{{ flash.message }}</p>{% endif %}
     {% block content %}{% endblock %}
   </main>
+  {% endblock %}
 </body>
 </html>

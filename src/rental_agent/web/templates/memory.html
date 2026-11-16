@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Memory · Rental Agent{% endblock %}
+{% block content %}
+<h1>Memory</h1>
+<p class="muted">Standing rules and instructions. Every chat and every job run (email sync, rent research)
+  reads this. Stored on your Mac at <code>memory/memory.md</code>; you can also edit it in any editor.</p>
+{% if too_long %}<p class="flash error">This is longer than {{ "{:,}".format(max_chars) }} characters; only the first part is sent to Claude. Shorten it.</p>{% endif %}
+<section class="card">
+  <form method="post" action="/memory">
+    <textarea name="text" rows="22" spellcheck="true" aria-label="memory.md">{{ text }}</textarea>
+    <button type="submit">Save memory</button>
+  </form>
+</section>
+{% endblock %}

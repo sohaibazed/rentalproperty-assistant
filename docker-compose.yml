@@ -19,6 +19,7 @@ services:
       - ./artifacts:/app/artifacts     # reports, leases, receipts (shared with your Mac)
       - ./reference:/app/reference:ro
       - ./config:/app/config:ro        # email_sources.toml
+      - ./memory:/app/memory           # memory.md: your standing rules (editable on the Memory page)
     read_only: true
     tmpfs:
       - /tmp
