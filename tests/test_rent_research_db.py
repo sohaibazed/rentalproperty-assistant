@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-import shutil
 import time
 from decimal import Decimal
 
@@ -45,7 +44,7 @@ def seeded():
 
 def _settings(tmp_path):
     return Settings(model="test", db_url=DB, artifacts_dir=tmp_path, reference_dir=tmp_path,
-                    email_sources_path=tmp_path, soffice_bin="soffice")
+                    email_sources_path=tmp_path)
 
 
 def _fake_agents(rec, rents):
@@ -70,10 +69,9 @@ def test_saves_then_updates_and_feeds_generate_lease(seeded, tmp_path, monkeypat
                             "from rent_research").fetchall()
     assert rows == [(2027, Decimal("2650.00"), 5)]   # re-run replaced, not duplicated
 
-    if shutil.which("soffice"):
-        out = lease.run(_settings(tmp_path), property_id=seeded, start=None, end=None, rent=None,
-                        other_terms=None, dry_run=True)
-        assert out.context["monthly_rent"] == "$2,650.00"
+    out = lease.run(_settings(tmp_path), property_id=seeded, start=None, end=None, rent=None,
+                    other_terms=None, dry_run=True)
+    assert out.context["monthly_rent"] == "$2,650.00"
 
 
 def test_dry_run_saves_nothing_and_keeps_the_saved_report(seeded, tmp_path, monkeypatch):

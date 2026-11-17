@@ -35,7 +35,7 @@ def test_report_from_database(tmp_path: Path):
                      (pid,))
 
     settings = Settings(model="test", db_url=DB, artifacts_dir=tmp_path, reference_dir=tmp_path,
-                        email_sources_path=tmp_path, soffice_bin="soffice")
+                        email_sources_path=tmp_path)
     report, xlsx, csv_path = tax_report.run(settings, 2025)
 
     assert report.rent == {pid: 12000}

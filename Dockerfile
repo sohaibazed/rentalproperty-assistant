@@ -1,12 +1,11 @@
 # Rental Agent web UI. Build and run with `make up`; see docker-compose.yml.
 FROM python:3.13-slim-bookworm
 
-# LibreOffice (headless) converts leases to PDF; Carlito is metric-compatible with Calibri,
-# the template's font. tzdata lets TZ pick the scheduler's local day.
+# tzdata lets TZ pick the scheduler's local day.
 # The final cleanup only empties apt's package-list cache inside this image layer.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      libreoffice-writer-nogui fonts-crosextra-carlito fonts-dejavu-core tzdata ca-certificates \
+      tzdata ca-certificates \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 

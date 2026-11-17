@@ -70,7 +70,7 @@ def fakes(monkeypatch, tmp_path):
     sources = tmp_path / "sources.toml"
     sources.write_text('[rent]\nsenders=["bank@x.com"]\n')
     return Settings(model="test", db_url=DB, artifacts_dir=tmp_path / "artifacts",
-                    reference_dir=tmp_path, email_sources_path=sources, soffice_bin="soffice",
+                    reference_dir=tmp_path, email_sources_path=sources,
                     gmail_token="{}")
 
 

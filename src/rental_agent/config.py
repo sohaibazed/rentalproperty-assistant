@@ -51,7 +51,6 @@ class Settings:
     artifacts_dir: Path
     reference_dir: Path
     email_sources_path: Path
-    soffice_bin: str
     claude_env: dict[str, str] = field(default_factory=dict)   # passed to the Claude process
     gmail_token: str | None = None                             # authorized-user JSON
 
@@ -76,7 +75,6 @@ def load_settings(secrets: Mapping[str, str] | None = None) -> Settings:
         artifacts_dir=artifacts_dir(),
         reference_dir=_path("RENTAL_REFERENCE_DIR", "./reference"),
         email_sources_path=_path("RENTAL_EMAIL_SOURCES", "./config/email_sources.toml"),
-        soffice_bin=os.environ.get("SOFFICE_BIN", "soffice"),
         claude_env={n: v for n in CLAUDE_SECRET_NAMES if (v := value(n))},
         gmail_token=gmail_token,
     )

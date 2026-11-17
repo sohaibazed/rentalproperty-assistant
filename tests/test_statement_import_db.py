@@ -51,7 +51,7 @@ ROWS = [
 
 
 def test_tool_marks_existing_then_card_saves_ticked_rows(seeded, tmp_path, monkeypatch):
-    settings = Settings("m", DB, tmp_path, tmp_path, tmp_path, "s")
+    settings = Settings("m", DB, tmp_path, tmp_path, tmp_path)
     proposals = []
     att = "chat-uploads/1/stmt.csv"
     tools = {t.name: t for t in chat.make_tools(settings, proposals, {att})}

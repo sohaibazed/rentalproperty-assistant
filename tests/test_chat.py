@@ -50,7 +50,7 @@ def test_content_blocks(tmp_path):
 
 def _tools(tmp_path, attachments=frozenset()):
     proposals = []
-    settings = Settings("m", "db", tmp_path, tmp_path, tmp_path, "s")
+    settings = Settings("m", "db", tmp_path, tmp_path, tmp_path)
     tools = {t.name: t for t in chat.make_tools(settings, proposals, set(attachments))}
     return tools, proposals
 
@@ -86,7 +86,7 @@ def test_markdown_is_escaped_and_links_are_safe():
 
 
 def test_unknown_model_rejected(tmp_path):
-    settings = Settings("m", "db", tmp_path, tmp_path, tmp_path, "s")
+    settings = Settings("m", "db", tmp_path, tmp_path, tmp_path)
     with pytest.raises(ValueError):
         asyncio.run(chat.run_turn(settings, model="gpt-x", text="hi", files=[], session_id=None,
                                   history="", on_text=print, on_status=print))

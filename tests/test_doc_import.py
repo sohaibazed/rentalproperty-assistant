@@ -82,7 +82,7 @@ def test_document_text_uses_summary_for_files_without_text(tmp_path):
 
 def test_propose_document_import_records_a_card(tmp_path):
     proposals = []
-    settings = Settings("m", "db", tmp_path, tmp_path, tmp_path, "s")
+    settings = Settings("m", "db", tmp_path, tmp_path, tmp_path)
     tools = {t.name: t for t in chat.make_tools(settings, proposals, {"chat-uploads/1/x.pdf"})}
     tool = tools["propose_document_import"]
     bad = asyncio.run(tool.handler({**LEASE, "attachment": "chat-uploads/9/other.pdf"}))

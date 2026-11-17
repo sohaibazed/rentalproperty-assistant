@@ -34,13 +34,13 @@ JOBS: dict[str, tuple[str, list[Param]]] = {
         Param("year", "int", "Year", help="Default: year the next lease term starts"),
         Param("dry_run", "bool", "Dry run", help="Write the report; don't save the recommendation"),
     ]),
-    "generate-lease": ("Create next year's lease extension (.docx + .pdf)", [
+    "generate-lease": ("Create next year's lease extension (.pdf, original lease attached)", [
         Param("property_id", "int", "Property ID", required=True),
         Param("rent", "decimal", "Monthly rent", help="Default: this year's rent research"),
         Param("start", "date", "Start date", help="Default: day after the current term ends"),
         Param("end", "date", "End date", help="Default: one year after the start"),
         Param("other_terms", "text", "Other terms", help='e.g. "Tenant pays water."'),
-        Param("dry_run", "bool", "Dry run", help="Write the documents; don't record the new term"),
+        Param("dry_run", "bool", "Dry run", help="Write the document; don't record the new term"),
     ]),
     "tax-report": ("Year-end Schedule E summary (xlsx + csv)", [
         Param("year", "int", "Tax year", help="Default: last year"),
@@ -113,7 +113,7 @@ async def run_job(job: str, params: Mapping[str, Any], settings: Settings) -> Ou
         summary = list(r.warnings)
         summary.append("Dry run: lease term not recorded." if r.lease_id is None
                        else f"Recorded lease term id {r.lease_id}.")
-        return Outcome(True, summary, [r.docx_path, r.pdf_path])
+        return Outcome(True, summary, [r.pdf_path])
 
     if job == "tax-report":
         year = params.get("year") or date.today().year - 1

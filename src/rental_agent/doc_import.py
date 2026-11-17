@@ -16,6 +16,8 @@ from typing import Any
 import psycopg
 from pypdf import PdfReader
 
+from rental_agent.config import artifacts_dir
+
 DOC_TYPES = ["lease", "lease_extension", "llc_formation", "operating_agreement", "ein_letter",
              "other"]
 LEASE_TYPES = {"lease", "lease_extension"}
@@ -266,7 +268,8 @@ def _save_llc(conn: psycopg.Connection, llc: dict[str, Any]) -> tuple[int, str]:
     return llc_id, f"Updated LLC {llc['name']}."
 
 
-def _save_lease(conn: psycopg.Connection, lease: dict[str, Any], llc_id: int | None) -> list[str]:
+def _save_lease(conn: psycopg.Connection, lease: dict[str, Any], llc_id: int | None,
+                pdf_path: str | None) -> list[str]:
     done = []
     prop_id = _one(conn, """select id from properties
                             where lower(address) = lower(%s) and coalesce(unit, '') = coalesce(%s, '')""",
@@ -309,22 +312,34 @@ def _save_lease(conn: psycopg.Connection, lease: dict[str, Any], llc_id: int | N
                     (prop_id, lease["start_date"], lease["end_date"]))
     if lease_id is None:
         lease_id = _one(conn, """insert into leases (property_id, start_date, end_date, monthly_rent,
-                                                     deposit, original_lease_date, other_terms)
-                                 values (%s, %s, %s, %s, %s, %s, %s) returning id""",
-                        (prop_id, lease["start_date"], lease["end_date"], *terms))
+                                                     deposit, original_lease_date, other_terms,
+                                                     pdf_path)
+                                 values (%s, %s, %s, %s, %s, %s, %s, %s) returning id""",
+                        (prop_id, lease["start_date"], lease["end_date"], *terms, pdf_path))
         done.append(f"Added lease term {lease['start_date']} to {lease['end_date']} at "
                     f"${Decimal(lease['monthly_rent']):,.2f}/month.")
     else:
         conn.execute("""update leases set monthly_rent = %s, deposit = coalesce(%s, deposit),
                           original_lease_date = coalesce(%s, original_lease_date),
-                          other_terms = coalesce(%s, other_terms)
-                        where id = %s""", (*terms, lease_id))
+                          other_terms = coalesce(%s, other_terms),
+                          pdf_path = coalesce(%s, pdf_path)
+                        where id = %s""", (*terms, pdf_path, lease_id))
         done.append(f"Updated the existing lease term {lease['start_date']} to "
                     f"{lease['end_date']}.")
     for tid in tenant_ids:
         conn.execute("""insert into lease_tenants (lease_id, tenant_id) values (%s, %s)
                         on conflict do nothing""", (lease_id, tid))
     return done
+
+
+def _stored_pdf(source: Path) -> str | None:
+    """The PDF's path relative to the artifacts folder, so generate-lease can attach the
+    original lease to each extension. None for files kept elsewhere."""
+    base = artifacts_dir().resolve()
+    source = source.resolve()
+    if source.suffix.lower() != ".pdf" or not source.is_relative_to(base):
+        return None
+    return str(source.relative_to(base))
 
 
 def apply(conn: psycopg.Connection, data: dict[str, Any], source: Path) -> list[str]:
@@ -343,7 +358,7 @@ def apply(conn: psycopg.Connection, data: dict[str, Any], source: Path) -> list[
             if llc_id is None:
                 raise ValueError(f"LLC {data['owner_llc']!r} isn't in the database yet; import "
                                  "its formation document first, or leave the owner blank")
-        done.extend(_save_lease(conn, data["lease"], llc_id))
+        done.extend(_save_lease(conn, data["lease"], llc_id, _stored_pdf(source)))
 
     content, pages = document_text(source, f"# {data['title']}\n\n{data['summary']}")
     category = ("lease" if data["doc_type"] in LEASE_TYPES

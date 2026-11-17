@@ -67,7 +67,7 @@ class JobManager:
         root = logging.getLogger()
         root.addHandler(capture)
         try:
-            # Own thread + event loop: jobs make blocking calls (Gmail, LibreOffice, Postgres)
+            # Own thread + event loop: jobs make blocking calls (Gmail, Postgres)
             # that would otherwise freeze the web pages while they run.
             outcome = await asyncio.to_thread(asyncio.run, self.run_fn(job, params, settings))
             ok, summary = outcome.ok, "\n".join(outcome.summary)

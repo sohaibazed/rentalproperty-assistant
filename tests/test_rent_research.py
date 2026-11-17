@@ -67,7 +67,7 @@ def test_report_contents():
 
 
 def test_agents_have_no_file_shell_or_db_tools(tmp_path):
-    opts = rr.agent_options(Settings("m", "db", tmp_path, tmp_path, tmp_path, "s",
+    opts = rr.agent_options(Settings("m", "db", tmp_path, tmp_path, tmp_path,
                                                claude_env={"ANTHROPIC_API_KEY": "k"}))
     assert set(opts.tools) == {"Agent", "WebSearch", "WebFetch"}
     assert opts.agents["comps-researcher"].tools == ["WebSearch", "WebFetch"]
@@ -83,7 +83,7 @@ def test_ask_agents_returns_structured_output(monkeypatch, tmp_path):
                             num_turns=3, session_id="s", structured_output={"ok": True})
 
     monkeypatch.setattr(rr, "query", fake_query)
-    settings = Settings("m", "db", tmp_path, tmp_path, tmp_path, "s")
+    settings = Settings("m", "db", tmp_path, tmp_path, tmp_path)
     assert asyncio.run(rr.ask_agents(FACTS, settings)) == {"ok": True}
 
 
@@ -93,6 +93,6 @@ def test_ask_agents_raises_on_error(monkeypatch, tmp_path):
                             is_error=True, num_turns=10, session_id="s")
 
     monkeypatch.setattr(rr, "query", fake_query)
-    settings = Settings("m", "db", Path(tmp_path), tmp_path, tmp_path, "s")
+    settings = Settings("m", "db", Path(tmp_path), tmp_path, tmp_path)
     with pytest.raises(RuntimeError, match="error_max_turns"):
         asyncio.run(rr.ask_agents(FACTS, settings))

@@ -255,6 +255,18 @@ def recommended_rent(conn: psycopg.Connection, property_id: int, year: int) -> D
     return row[0] if row else None
 
 
+def original_lease_pdf(conn: psycopg.Connection, property_id: int, lease_date: date) -> str | None:
+    """pdf_path of the original lease (not an extension) that started on lease_date."""
+    row = conn.execute(
+        """select pdf_path from leases
+           where property_id = %s and start_date = %s and original_lease_date is null
+             and pdf_path is not null
+           order by id limit 1""",
+        (property_id, lease_date),
+    ).fetchone()
+    return row[0] if row else None
+
+
 def insert_lease_extension(
     conn: psycopg.Connection,
     *,
@@ -266,15 +278,14 @@ def insert_lease_extension(
     original_lease_date: date,
     other_terms: str | None,
     tenant_ids: list[int],
-    docx_path: str,
     pdf_path: str,
 ) -> int:
     lease_id = conn.execute(
         """insert into leases (property_id, start_date, end_date, monthly_rent, deposit,
-                               original_lease_date, other_terms, docx_path, pdf_path)
-           values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning id""",
+                               original_lease_date, other_terms, pdf_path)
+           values (%s, %s, %s, %s, %s, %s, %s, %s) returning id""",
         (property_id, start_date, end_date, monthly_rent, deposit, original_lease_date,
-         other_terms, docx_path, pdf_path),
+         other_terms, pdf_path),
     ).fetchone()[0]
     for tenant_id in tenant_ids:
         conn.execute(
