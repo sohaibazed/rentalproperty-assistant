@@ -89,11 +89,21 @@ def test_writing_it_again_replaces_the_unsigned_extension(seeded, tmp_path):
         assert conn.execute("select count(*) from lease_tenants where lease_id = %s",
                             (first.lease_id,)).fetchone()[0] == 2
 
+    # Same dates, same file name: the new PDF took the old one's place.
+    assert again.pdf_path == first.pdf_path and again.pdf_path.is_file()
+
+    # New dates mean a new file name, so the earlier PDF is deleted.
+    longer = lease.run(_settings(tmp_path), property_id=seeded, start=None, end=date(2028, 12, 31),
+                       rent=Decimal(2650), other_terms=None, dry_run=False)
+    assert longer.lease_id == first.lease_id
+    assert longer.pdf_path.is_file() and not first.pdf_path.exists()
+    assert f"Deleted the earlier PDF, {first.pdf_path.name}." in longer.warnings
+
     # Once the signed copy is imported, the next run writes the following year's extension.
     with psycopg.connect(ADMIN, autocommit=True) as conn:
         conn.execute("update leases set awaiting_signature = false")
     following = generate(2700)
-    assert following.context["start_date"] == "January 1, 2028"
+    assert following.context["start_date"] == "January 1, 2029"
     assert following.lease_id != first.lease_id
 
 

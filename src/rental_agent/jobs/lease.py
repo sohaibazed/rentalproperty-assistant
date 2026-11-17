@@ -288,5 +288,12 @@ def run(
                     f"({long_date(draft.start_date)} to {long_date(draft.end_date)} at "
                     f"{money(draft.monthly_rent)}).")
             conn.commit()
+            if draft is not None and draft.pdf_path and draft.pdf_path != term["pdf_path"]:
+                # The dates are in the file name, so new dates leave the earlier PDF behind.
+                # After the commit, so a failed save never loses the file the row points at.
+                stale = (settings.artifacts_dir / draft.pdf_path).resolve()
+                if stale.is_relative_to(settings.artifacts_dir.resolve()):
+                    stale.unlink(missing_ok=True)
+                    warnings.append(f"Deleted the earlier PDF, {stale.name}.")
 
     return LeaseResult(pdf, lease_id, context, warnings)
