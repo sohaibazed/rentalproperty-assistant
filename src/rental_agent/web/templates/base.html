@@ -13,8 +13,8 @@
   <header>
     <a class="brand" href="/">Rental Agent</a>
     <nav>
-      {% for href, label, tpl in [("/", "Chat", "chat.html"), ("/dashboard", "Dashboard", "dashboard.html"), ("/review", "Review", "review.html"), ("/jobs", "Run a job", "jobs.html"),
-          ("/runs", "Runs", "runs.html"), ("/rent", "Rent", "rent.html"), ("/expenses", "Expenses", "expenses.html"),
+      {% for href, label, tpl in [("/", "Chat", "chat.html"), ("/dashboard", "Dashboard", "dashboard.html"), ("/review", "Review", "review.html"), ("/jobs", "Jobs", "jobs.html"),
+          ("/rent", "Rent", "rent.html"), ("/expenses", "Expenses", "expenses.html"),
           ("/research", "Rent research", "research.html"), ("/leases", "Leases", "leases.html"),
           ("/memory", "Memory", "memory.html"), ("/prompts", "Prompts", "prompts.html"), ("/settings", "Settings", "settings.html")] %}
         <a href="{{ href }}" {% if nav == tpl %}aria-current="page"{% endif %}>{{ label }}</a>

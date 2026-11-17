@@ -9,7 +9,7 @@
     <tbody>{% for r in rows %}<tr>
       <td>{{ r.year }}</td><td>{{ r.address }}</td><td class="r">{{ r.recommended_rent | money }}</td><td>{{ r.comp_count }}</td>
       <td>{% if r.report_path %}<a href="/report/{{ r.report_path }}">read</a>{% endif %}</td>
-    </tr>{% else %}<tr><td colspan="5" class="muted">No research yet. <a href="/jobs">Run research-rent</a>.</td></tr>{% endfor %}</tbody>
+    </tr>{% else %}<tr><td colspan="5" class="muted">No research yet. <a href="/jobs#run-a-job">Run research-rent</a>.</td></tr>{% endfor %}</tbody>
   </table>
 </section>
 {% endblock %}

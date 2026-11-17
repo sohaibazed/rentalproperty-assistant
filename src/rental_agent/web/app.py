@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 import markdown
 import psycopg
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -39,6 +39,8 @@ from rental_agent.web.secrets import GMAIL_TOKEN, SECRETS, SecretStore
 HERE = Path(__file__).parent
 PUBLIC_PATHS = {"/login", "/static/style.css"}
 OAUTH_TTL_SECONDS = 600
+RECENT_RUNS = 10     # runs listed on the Jobs page before "Show all runs"
+ALL_RUNS = 200
 INLINE_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 
@@ -177,8 +179,18 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
     # --- Jobs and runs --------------------------------------------------------------------------
 
     @app.get("/jobs", response_class=HTMLResponse)
-    async def jobs_page(request: Request):
-        return page(request, "jobs.html", jobs=runner.JOBS)
+    async def jobs_page(request: Request, job: str | None = None,
+                        show_all: bool = Query(False, alias="all")):
+        """Runs so far (newest first), then the forms that start a job."""
+        conn, db_error = connect()
+        runs = []
+        if conn:
+            with conn:
+                runs = db.job_runs(conn, limit=ALL_RUNS if show_all else RECENT_RUNS,
+                                   job=job or None)
+        return page(request, "jobs.html", jobs=runner.JOBS, runs=runs, db_error=db_error,
+                    job=job, show_all=show_all,
+                    more=not show_all and len(runs) == RECENT_RUNS)
 
     @app.post("/jobs/{job}")
     async def start_job(request: Request, job: str):
@@ -196,20 +208,12 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
             return RedirectResponse("/jobs", status_code=303)
         return RedirectResponse(f"/runs/{run_id}", status_code=303)
 
-    @app.get("/runs", response_class=HTMLResponse)
-    async def runs_page(request: Request, job: str | None = None):
-        conn, db_error = connect()
-        runs = []
-        if conn:
-            with conn:
-                runs = db.job_runs(conn, limit=200, job=job or None)
-        return page(request, "runs.html", runs=runs, db_error=db_error, job=job, jobs=runner.JOBS)
-
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
     async def run_page(request: Request, run_id: int):
-        conn, db_error = connect()
+        conn, _ = connect()
         if not conn:
-            return page(request, "runs.html", runs=[], db_error=db_error, job=None, jobs=runner.JOBS)
+            # The Jobs page explains what's missing.
+            return await jobs_page(request, job=None, show_all=False)
         with conn:
             run = db.job_run(conn, run_id)
         if not run:

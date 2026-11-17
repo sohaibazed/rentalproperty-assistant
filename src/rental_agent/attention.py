@@ -78,18 +78,18 @@ def renewal_items(conn: psycopg.Connection, today: date) -> list[Item]:
         if today > end:
             items.append(Item("now", f"{prop.label}: the lease term ended on {long_date(end)} "
                               "and no extension is recorded. Import the signed extension, or "
-                              "generate one.", "/jobs", "Run a job"))
+                              "generate one.", "/jobs#run-a-job", "Run a job"))
         elif today > sign_by:
             items.append(Item("now", f"{prop.label}: the {NOTICE_DAYS}-day notice date "
                               f"({long_date(sign_by)}) has passed and the lease ends on "
                               f"{long_date(end)}. Without a signed extension it rolls to "
-                              "month-to-month at the current rent.", "/jobs", "Run a job"))
+                              "month-to-month at the current rent.", "/jobs#run-a-job", "Run a job"))
         elif today >= sign_by - timedelta(days=RENEWAL_LEAD_DAYS):
             left = (sign_by - today).days
             when = "today" if left == 0 else f"{left} day{'' if left == 1 else 's'} left"
             items.append(Item("soon", f"{prop.label}: the lease ends on {long_date(end)}. Get "
                               f"the extension signed by {long_date(sign_by)} ({when}). Start "
-                              "with rent research.", "/jobs", "Run a job"))
+                              "with rent research.", "/jobs#run-a-job", "Run a job"))
     return items
 
 

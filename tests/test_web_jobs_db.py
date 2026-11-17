@@ -7,8 +7,11 @@ import os
 import psycopg
 import pytest
 from cryptography.fernet import Fernet
+from fastapi.testclient import TestClient
 
 from rental_agent import runner
+from rental_agent.web.app import create_app
+from rental_agent.web.chat_views import ChatManager
 from rental_agent.web.jobs import JobManager
 from rental_agent.web.secrets import SecretStore
 
@@ -85,3 +88,26 @@ def test_one_job_at_a_time(manager):
         await _wait(manager)
         assert not manager.busy
     asyncio.run(go())
+
+
+def test_jobs_page_lists_recent_runs_then_all(manager, tmp_path, monkeypatch):
+    with psycopg.connect(ADMIN, autocommit=True) as conn:
+        for n in range(1, 13):
+            conn.execute("insert into job_runs (job, status, summary) values (%s, 'success', 'ok')",
+                         ("tax-report" if n % 2 else "sync-email",))
+    for k, v in {"RENTAL_UI_PASSWORD": "pw", "RENTAL_UI_USERNAME": "owner@example.com",
+                 "RENTAL_SCHEDULER": "off", "RENTAL_DATA_DIR": str(tmp_path / "data")}.items():
+        monkeypatch.setenv(k, v)
+    app = create_app(store=manager.store, manager=manager, chats=ChatManager(manager.store))
+    origin = {"origin": "http://testserver"}
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "owner@example.com", "password": "pw"}, headers=origin)
+        page = c.get("/jobs").text                       # the ten newest, above the job forms
+        assert page.count('<a href="/runs/') == 10 and 'href="/runs/2"' not in page
+        assert "Recent runs" in page and "Show all runs" in page
+        assert page.index('href="/runs/12"') < page.index('id="run-a-job"')
+        page = c.get("/jobs?all=1").text
+        assert page.count('<a href="/runs/') == 12 and "All runs" in page
+        assert "Show all runs" not in page
+        page = c.get("/jobs?job=sync-email").text        # the filter that the Runs page had
+        assert page.count('<a href="/runs/') == 6 and 'href="/runs/11"' not in page

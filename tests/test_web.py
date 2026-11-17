@@ -89,10 +89,16 @@ def test_wrong_key_cannot_read_secrets(env):
 
 
 def test_pages_explain_missing_database(client):
-    for path in ("/", "/rent", "/expenses", "/research", "/leases", "/runs"):
+    for path in ("/", "/rent", "/expenses", "/research", "/leases", "/jobs"):
         r = client.get(path)
         assert r.status_code == 200
     assert "RENTAL_DB_URL is not set" in client.get("/rent").text
+
+
+def test_jobs_page_lists_runs_above_the_job_forms(client):
+    page = client.get("/jobs").text
+    assert 0 < page.index("Recent runs") < page.index('id="run-a-job"') < page.index("Run sync-email")
+    assert 'href="/runs"' not in page and client.get("/runs").status_code == 404
 
 
 def test_starting_a_job_without_database_is_a_clear_error(client):

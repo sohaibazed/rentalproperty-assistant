@@ -1,7 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Run a job · Rental Agent{% endblock %}
+{% block title %}Jobs · Rental Agent{% endblock %}
 {% block content %}
-<h1>Run a job</h1>
+<h1>Jobs</h1>
+{% include "_db_error.html" %}
+<section class="card">
+  <h2>{{ "All runs" if show_all else "Recent runs" }}</h2>
+  <form method="get" action="/jobs" class="inline">
+    <select name="job" aria-label="Filter by job">
+      <option value="">All jobs</option>
+      {% for name in jobs %}<option value="{{ name }}" {% if job == name %}selected{% endif %}>{{ name }}</option>{% endfor %}
+    </select>
+    {% if show_all %}<input type="hidden" name="all" value="1">{% endif %}
+    <button type="submit">Filter</button>
+  </form>
+  {% include "_runs_table.html" %}
+  {% if more %}<p><a href="/jobs?{% if job %}job={{ job | urlencode }}&amp;{% endif %}all=1">Show all runs</a></p>{% endif %}
+</section>
+<h2 id="run-a-job">Run a job</h2>
 <div class="grid">
 {% for name, (help, params) in jobs.items() %}
   <section class="card">
