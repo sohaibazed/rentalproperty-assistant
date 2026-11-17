@@ -110,6 +110,12 @@ create table if not exists expenses (
   created_at           timestamptz not null default now()
 );
 
+-- Set when the owner removes a row on the Review, Rent or Expenses page. The app never
+-- deletes: a removed row is left out of totals and reports, keeps its source id so it isn't
+-- imported again, and can be restored. An `alter`, so it also upgrades an existing database.
+alter table rent_payments add column if not exists removed_at timestamptz;
+alter table expenses add column if not exists removed_at timestamptz;
+
 create table if not exists rent_research (
   id                bigint generated always as identity primary key,
   property_id       bigint not null references properties(id),

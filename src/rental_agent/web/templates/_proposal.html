@@ -91,6 +91,27 @@
         </div>
       </form>
     {% endif %}
+  {% elif p.kind == "correction" %}
+    {% set what = "rent payment" if p.data.kind == "rent" else "expense" %}
+    <h4>{{ "Remove" if p.data.action == "remove" else "Fix" }} {{ what }}</h4>
+    <p class="small">{{ p.data.summary }}</p>
+    {% if p.data.action == "remove" %}
+      <p class="small muted">It will be left out of totals and reports. You can restore it later.</p>
+    {% elif p.data.changes %}
+      <dl class="facts small">
+        {% for c in p.data.changes %}<dt>{{ c.field }}</dt><dd>{{ c.from }} → {{ c.to }}</dd>{% endfor %}
+      </dl>
+    {% else %}
+      <p class="small muted">No changes. Marks it as checked.</p>
+    {% endif %}
+    {% if p.data.reason %}<p class="small muted">{{ p.data.reason }}</p>{% endif %}
+    {% if p.status == "pending" %}
+      <form method="post" action="{{ action }}" class="row">
+        <button name="action" value="confirm">{{ "Remove" if p.data.action == "remove" else "Save" }}</button>
+        <button name="action" value="dismiss" class="secondary">Dismiss</button>
+        <a href="/{{ 'rent' if p.data.kind == 'rent' else 'expenses' }}/{{ p.data.row_id }}">Edit instead</a>
+      </form>
+    {% endif %}
   {% elif p.kind == "memory" %}
     <h4>Add to memory</h4>
     {% if p.status == "pending" %}

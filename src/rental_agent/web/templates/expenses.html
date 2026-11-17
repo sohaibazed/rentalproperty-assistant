@@ -14,13 +14,14 @@
   <section class="card">
     <h2>All expenses</h2>
     <table>
-      <thead><tr><th>Date</th><th class="r">Amount</th><th>Category</th><th>Vendor</th><th>Receipt</th><th>Review</th></tr></thead>
-      <tbody>{% for r in rows %}<tr>
+      <thead><tr><th>Date</th><th class="r">Amount</th><th>Category</th><th>Vendor</th><th>Receipt</th><th>Review</th><th></th></tr></thead>
+      <tbody>{% for r in rows %}<tr{% if r.removed_at %} class="removed"{% endif %}>
         <td>{{ r.spent_on }}</td><td class="r">{{ r.amount | money }}</td><td>{{ r.category.replace("_", " ") }}</td>
         <td>{{ r.vendor or "-" }}</td>
         <td>{% if r.receipt_path %}<a href="/files/{{ r.receipt_path }}">view</a>{% endif %}</td>
-        <td>{% if r.needs_review %}<span class="pill failed">check</span>{% endif %}</td>
-      </tr>{% else %}<tr><td colspan="6" class="muted">No expenses recorded for {{ year }}.</td></tr>{% endfor %}</tbody>
+        <td>{% if r.removed_at %}<span class="pill">removed</span>{% elif r.needs_review %}<span class="pill failed">check</span>{% endif %}</td>
+        <td><a href="/expenses/{{ r.id }}">{{ "Restore" if r.removed_at else "Edit" }}</a></td>
+      </tr>{% else %}<tr><td colspan="7" class="muted">No expenses recorded for {{ year }}.</td></tr>{% endfor %}</tbody>
     </table>
   </section>
 </div>

@@ -32,7 +32,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from rental_agent import db, gmail, runner
 from rental_agent.config import artifacts_dir, env_or_file, reference_dir
 from rental_agent.jobs import rent_research
-from rental_agent.web import chat_views
+from rental_agent.web import chat_views, review_views
 from rental_agent.web.jobs import JobManager, next_sync_date, scheduler
 from rental_agent.web.secrets import GMAIL_TOKEN, SECRETS, SecretStore
 
@@ -139,8 +139,15 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         request.session.clear()
         return RedirectResponse("/login", status_code=303)
 
+    @app.exception_handler(psycopg.errors.UndefinedColumn)
+    async def schema_out_of_date(request: Request, _exc: Exception):
+        flash(request, "The database is missing a newer column. Run supabase/schema.sql again "
+                       "in the Supabase SQL Editor (README section 3.2).", "error")
+        return RedirectResponse("/settings", status_code=303)
+
     chat_views.register(app, store=store, jobs=manager, chats=chats, page=page, flash=flash,
                         connect=connect, render_markdown=render_markdown)
+    review_views.register(app, page=page, flash=flash, connect=connect)
 
     # --- Dashboard ----------------------------------------------------------------------------
 
@@ -251,12 +258,13 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
     async def rent_page(request: Request, year: int | None = None):
         year = year or date.today().year
         conn, db_error = connect()
-        rows, total = [], 0
+        rows = []
         if conn:
             with conn:
-                rows = db.rent_payments_for_year(conn, year)
-            total = sum(r["amount"] for r in rows)
-        return page(request, "rent.html", rows=rows, total=total, year=year, db_error=db_error)
+                rows = db.rent_payments_for_year(conn, year, include_removed=True)
+        counted = [r["amount"] for r in rows if not r["removed_at"]]
+        return page(request, "rent.html", rows=rows, total=sum(counted), count=len(counted),
+                    year=year, db_error=db_error)
 
     @app.get("/expenses", response_class=HTMLResponse)
     async def expenses_page(request: Request, year: int | None = None):
@@ -265,8 +273,10 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         rows, by_category = [], {}
         if conn:
             with conn:
-                rows = db.expenses_list(conn, year)
+                rows = db.expenses_list(conn, year, include_removed=True)
             for r in rows:
+                if r["removed_at"]:
+                    continue
                 by_category[r["category"]] = by_category.get(r["category"], 0) + r["amount"]
         return page(request, "expenses.html", rows=rows, year=year, db_error=db_error,
                     by_category=sorted(by_category.items(), key=lambda kv: -kv[1]),

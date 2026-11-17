@@ -6,6 +6,10 @@ A private web app that helps run a small rental-property LLC:
   statements to record rent and expenses, import new leases and LLC documents, ask about your
   leases or local rental rules, and start jobs. Every change waits for you to click a confirm
   card.
+- **Review**: rent payments and expenses the email sync or a statement import wasn't sure
+  about. Fix a row, confirm it, or remove it, here or by telling the chat what is wrong.
+  Rent and Expenses have an **Edit** link on every row. A removed row is left out of totals
+  and reports and can be restored; nothing is deleted.
 - **Jobs**: `sync-email` imports rent and expense emails from Gmail (automatically on the
   1st, 11th and 21st), `research-rent` recommends next year's rent from comparable listings,
   `generate-lease` writes the yearly lease extension as one PDF (the filled-in extension form
@@ -295,7 +299,7 @@ Restart with `make up` after changing code, templates or prompts.
 | Can't sign in | `make set-login-email EMAIL=...` to fix the email. To reset the password, delete the Keychain item `rental-agent-ui-password` in Keychain Access, run `make init-keys`, then `make up`. |
 | "Can't reach the database" | Use the **Session pooler** URL with user `rental_agent.<project-ref>` (section 3.4), URL-encode special characters, and check the project isn't paused. |
 | "Tenant or user not found" | The username is missing its project ref: it must be `rental_agent.<project-ref>`, not just `rental_agent`. |
-| "permission denied" or "relation ... does not exist" | Run [`supabase/schema.sql`](supabase/schema.sql) again (section 3.2), for example after pulling a newer version. |
+| "permission denied", "relation ... does not exist" or "The database is missing a newer column" | Run [`supabase/schema.sql`](supabase/schema.sql) again (section 3.2), for example after pulling a newer version. |
 | "RENTAL_DB_URL is not set" | Save the database URL in Settings. |
 | Chat says "Claude sign-in failed" | Check the API key or token in Settings (section 4). A Claude Code token can expire; run `claude setup-token` again. |
 | An import card says "isn't in the database yet" | The lease names an LLC that hasn't been imported. Import the LLC's documents first, or ask the chat to leave the owner blank. |

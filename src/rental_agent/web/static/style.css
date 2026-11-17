@@ -33,6 +33,8 @@ thead th { background: var(--subtle); color: var(--muted); font-weight: 600; fon
 tbody tr:hover { background: var(--subtle); }
 .r { text-align: right; font-variant-numeric: tabular-nums; }
 tr.total td { font-weight: 700; border-top: 2px solid var(--line); }
+tr.removed td { color: var(--muted); } tr.removed td.r { text-decoration: line-through; }
+td form.inline { margin: 0; } td form.inline button { white-space: nowrap; }
 .clip { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 form { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 form.inline { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -111,6 +113,7 @@ code { font-size: 13px; word-break: break-all; background: var(--subtle); paddin
 .grid-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
 .grid-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
 .grid-form .wide { grid-column: 1 / -1; }
+.edit { max-width: 620px; }
 .row { display: flex; flex-direction: row; gap: 8px; margin: 8px 0 0; }
 .composer { border-top: 1px solid var(--line); background: #fff; padding: 14px 0 16px; }
 .box { border: 1px solid #cbd5e1; border-radius: 14px; padding: 10px 12px; margin: 0; gap: 4px;
