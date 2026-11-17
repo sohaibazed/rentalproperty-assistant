@@ -3,7 +3,8 @@ import pytest
 from rental_agent import prompts
 
 REQUIRED = ["email-extraction", "rent-recommendation", "comps-researcher",
-            "comps-researcher-description"]
+            "comps-researcher-description", "protest-opinion", "sales-researcher",
+            "sales-researcher-description"]
 
 
 @pytest.mark.parametrize("name", REQUIRED)

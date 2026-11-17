@@ -366,6 +366,17 @@ def rent_research_history(conn: psycopg.Connection, property_id: int) -> list[tu
     return [(r[0], r[1]) for r in rows]
 
 
+def saved_rent_comps(conn: psycopg.Connection, property_id: int,
+                     year: int) -> tuple[int, list[dict]] | None:
+    """The comps of the newest rent research up to `year`, with the year it was for."""
+    row = conn.execute(
+        """select year, comps from rent_research
+           where property_id = %s and year <= %s order by year desc limit 1""",
+        (property_id, year),
+    ).fetchone()
+    return (row[0], row[1]) if row else None
+
+
 def upsert_rent_research(
     conn: psycopg.Connection,
     *,

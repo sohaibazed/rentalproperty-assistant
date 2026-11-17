@@ -1452,6 +1452,7 @@ name = "rental-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "claude-agent-sdk" },
     { name = "cryptography" },
     { name = "docxtpl" },
@@ -1477,6 +1478,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi" },
     { name = "claude-agent-sdk" },
     { name = "cryptography", specifier = ">=50.0.2" },
     { name = "docxtpl" },

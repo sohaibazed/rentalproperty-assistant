@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from rental_agent.config import Settings
-from rental_agent.jobs import email_sync, lease, rent_research, tax_report
+from rental_agent.jobs import email_sync, lease, rent_research, tax_protest, tax_report
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,14 @@ JOBS: dict[str, tuple[str, list[Param]]] = {
     ]),
     "tax-report": ("Year-end Schedule E summary (xlsx + csv)", [
         Param("year", "int", "Tax year", help="Default: last year"),
+    ]),
+    "tax-protest": ("Collin County property-tax protest: evidence, forms and dates", [
+        Param("property_id", "int", "Property ID", required=True),
+        Param("year", "int", "Tax year", help="Default: the protest season that comes next"),
+        Param("cad_id", "int", "District property ID",
+              help="From the appraisal notice. Default: found by address"),
+        Param("hearing_date", "date", "Hearing date",
+              help="From the hearing notice; adds the exact evidence dates"),
     ]),
 }
 
@@ -122,5 +130,19 @@ async def run_job(job: str, params: Mapping[str, Any], settings: Settings) -> Ou
         summary = [(f"Tax year {year}: rent ${report.grand(report.rent):,.2f}; "
                    f"{len(report.flags)} item(s) to check on the Review sheet.")]
         return Outcome(True, summary, [xlsx, csv_path])
+
+    if job == "tax-protest":
+        p, report = await tax_protest.run(settings, property_id=params["property_id"],
+                                          year=params.get("year"), cad_id=params.get("cad_id"),
+                                          hearing_date=params.get("hearing_date"))
+        record = p.facts.record
+        summary = [(f"District value ${record.home.value:,.0f} ({record.value_year}); opinion "
+                    f"of value ${p.opinion:,.0f} from {len(record.comps)} similar homes and "
+                    f"{len(p.sales)} sales."),
+                   f"File by {lease.long_date(p.deadline)}"
+                   + ("." if p.deadline_is_official else " (expected; check the notice).")]
+        summary += [f"Check: {f}" for f in p.flags]
+        summary.append("Nothing was filed; the report lists what to file and when.")
+        return Outcome(True, summary, [report])
 
     raise ValueError(f"Unknown job: {job}")

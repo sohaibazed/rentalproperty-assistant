@@ -125,14 +125,22 @@ class Research:
     flags: list[str] = field(default_factory=list)
 
 
-def agent_options(settings: Settings) -> ClaudeAgentOptions:
+def agent_options(
+    settings: Settings,
+    *,
+    system: str = "rent-recommendation",
+    researcher: str = "comps-researcher",
+    schema: dict[str, Any] = OUTPUT_SCHEMA,
+) -> ClaudeAgentOptions:
+    """A main agent that hands the web work to one researcher subagent and replies in
+    `schema`. `system` and `researcher` name prompts; tax-protest passes its own."""
     return ClaudeAgentOptions(
         model=settings.model,
-        system_prompt=prompts.get("rent-recommendation") + memory.prompt_section(),
+        system_prompt=prompts.get(system) + memory.prompt_section(),
         agents={
-            "comps-researcher": AgentDefinition(
-                description=prompts.get("comps-researcher-description").strip(),
-                prompt=prompts.get("comps-researcher") + memory.prompt_section(),
+            researcher: AgentDefinition(
+                description=prompts.get(f"{researcher}-description").strip(),
+                prompt=prompts.get(researcher) + memory.prompt_section(),
                 tools=["WebSearch", "WebFetch"],
                 model="inherit",
                 maxTurns=25,
@@ -145,25 +153,31 @@ def agent_options(settings: Settings) -> ClaudeAgentOptions:
         allowed_tools=["Agent", "WebSearch", "WebFetch"],
         permission_mode="dontAsk",
         setting_sources=[],
-        output_format={"type": "json_schema", "schema": OUTPUT_SCHEMA},
+        output_format={"type": "json_schema", "schema": schema},
         max_turns=10,
         effort="high",
         env=settings.claude_env,
     )
 
 
-async def ask_agents(facts: Facts, settings: Settings) -> dict[str, Any]:
+async def ask(prompt: str, options: ClaudeAgentOptions, settings: Settings,
+              source: str) -> dict[str, Any]:
+    """Run the agents once and return their structured reply. `source` names the job in the
+    cost log and in the error."""
     result: ResultMessage | None = None
-    async for message in query(prompt=facts.as_text(), options=agent_options(settings)):
+    async for message in query(prompt=prompt, options=options):
         if isinstance(message, ResultMessage):
             result = message
     if result:
-        db.record_claude_cost(settings.db_url, "rent-research", settings.model,
-                              result.total_cost_usd)
+        db.record_claude_cost(settings.db_url, source, settings.model, result.total_cost_usd)
     if result is None or result.is_error or result.structured_output is None:
         detail = result.subtype if result else "no result"
-        raise RuntimeError(f"Rent research failed: {detail}")
+        raise RuntimeError(f"{source} failed: {detail}")
     return result.structured_output
+
+
+async def ask_agents(facts: Facts, settings: Settings) -> dict[str, Any]:
+    return await ask(facts.as_text(), agent_options(settings), settings, "rent-research")
 
 
 def clean_comps(raw: list[dict[str, Any]], current_rent: Decimal) -> tuple[list[Comp], list[tuple[str, str]]]:
@@ -192,7 +206,7 @@ def clean_comps(raw: list[dict[str, Any]], current_rent: Decimal) -> tuple[list[
     return kept, dropped
 
 
-def _quantile(values: list[Decimal], q: float) -> Decimal:
+def quantile(values: list[Decimal], q: float) -> Decimal:
     ordered = sorted(values)
     pos = (len(ordered) - 1) * q
     lo, hi = int(pos), min(int(pos) + 1, len(ordered) - 1)
@@ -213,9 +227,9 @@ def analyze(facts: Facts, raw: dict[str, Any]) -> Research:
         facts=facts,
         comps=comps,
         dropped=dropped,
-        median=_quantile(rents, 0.5),
-        p25=_quantile(rents, 0.25),
-        p75=_quantile(rents, 0.75),
+        median=quantile(rents, 0.5),
+        p25=quantile(rents, 0.25),
+        p75=quantile(rents, 0.75),
         per_sqft_estimate=per_sqft_estimate,
         recommended=Decimal(str(raw["recommended_rent"])).quantize(Decimal(1)),
         range_low=Decimal(str(raw["range_low"])).quantize(Decimal(1)),
@@ -269,12 +283,8 @@ def render_report(r: Research, today: date, dry_run: bool = False) -> str:
         + (f", size-adjusted estimate {money(r.per_sqft_estimate)} "
            f"(median $/sq ft × {f.sqft} sq ft)" if r.per_sqft_estimate else "") + ".",
         "",
-        "| Address | Beds | Baths | Sq ft | Rent | Date | Status | Source |",
-        "|---|---|---|---|---|---|---|---|",
+        *comps_table(r.comps),
     ]
-    for c in sorted(r.comps, key=lambda c: c.rent):
-        lines.append(f"| {c.address} | {c.beds or '-'} | {c.baths or '-'} | {c.sqft or '-'} | "
-                     f"{money(c.rent)} | {c.date or '-'} | {c.status} | [link]({c.source_url}) |")
     if r.dropped:
         lines += ["", "Dropped:", ""] + [f"- {a}: {why}" for a, why in r.dropped]
     if r.market_notes:
@@ -283,8 +293,23 @@ def render_report(r: Research, today: date, dry_run: bool = False) -> str:
     return "\n".join(lines)
 
 
+def comps_table(comps: list[Comp]) -> list[str]:
+    """The comps as markdown table lines, lowest rent first."""
+    lines = ["| Address | Beds | Baths | Sq ft | Rent | Date | Status | Source |",
+             "|---|---|---|---|---|---|---|---|"]
+    for c in sorted(comps, key=lambda c: c.rent):
+        lines.append(f"| {c.address} | {c.beds or '-'} | {c.baths or '-'} | {c.sqft or '-'} | "
+                     f"{money(c.rent)} | {c.date or '-'} | {c.status} | [link]({c.source_url}) |")
+    return lines
+
+
 def comps_json(comps: list[Comp]) -> str:
     return json.dumps([{**c.__dict__, "rent": float(c.rent)} for c in comps])
+
+
+def report_slug(address: str) -> str:
+    """File name for a property's report, from its street address: '12 Oak St' -> '12-oak-st'."""
+    return re.sub(r"[^a-z0-9]+", "-", address.split(",")[0].lower()).strip("-")
 
 
 def load_facts(conn, property_id: int, year: int | None) -> Facts:
@@ -325,9 +350,8 @@ async def run(
 
     research = analyze(facts, await ask_agents(facts, settings))
 
-    slug = re.sub(r"[^a-z0-9]+", "-", facts.address.split(",")[0].lower()).strip("-")
     # A dry run gets its own file, so it never replaces the saved report.
-    name = slug + (DRY_RUN_SUFFIX if dry_run else "")
+    name = report_slug(facts.address) + (DRY_RUN_SUFFIX if dry_run else "")
     report = settings.artifacts_dir / str(facts.year) / "rent-research" / f"{name}.md"
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(render_report(research, date.today(), dry_run))

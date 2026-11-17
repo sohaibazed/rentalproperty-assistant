@@ -4,7 +4,7 @@
 PY := uv run python -m rental_agent
 
 .PHONY: setup test lint gmail-auth sync-email sync-email-dry tax-report generate-lease research-rent \
-        reference-sql import-document init-keys set-login-email up down logs
+        tax-protest reference-sql import-document init-keys set-login-email up down logs
 
 setup:  ## Create .venv and install dependencies
 	uv sync
@@ -32,6 +32,9 @@ generate-lease:  ## Yearly lease extension: make generate-lease PROPERTY=1 RENT=
 
 research-rent:  ## Rent recommendation from comps: make research-rent PROPERTY=1 [YEAR=2027] [DRY=1]
 	$(PY) research-rent --property-id $(PROPERTY) $(if $(YEAR),--year $(YEAR)) $(if $(DRY),--dry-run)
+
+tax-protest:  ## Collin County protest evidence, forms and dates: make tax-protest PROPERTY=1 [YEAR=2027] [CAD_ID=123456] [HEARING=2027-06-10]
+	$(PY) tax-protest --property-id $(PROPERTY) $(if $(YEAR),--year $(YEAR)) $(if $(CAD_ID),--cad-id $(CAD_ID)) $(if $(HEARING),--hearing-date $(HEARING))
 
 reference-sql:  ## Build reference/supabase-documents.sql from your lease and LLC documents
 	uv run python scripts/build_reference_sql.py

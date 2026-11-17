@@ -21,8 +21,10 @@ A private web app that helps run a small rental-property LLC:
 - **Jobs**: `sync-email` imports rent and expense emails from Gmail (automatically on the
   1st, 11th and 21st), `research-rent` recommends next year's rent from comparable listings
   (automatically when a renewal opens), `generate-lease` writes the yearly lease extension
-  as one PDF (the filled-in extension form followed by the original lease), and `tax-report`
-  builds the year-end Schedule E summary.
+  as one PDF (the filled-in extension form followed by the original lease), `tax-report`
+  builds the year-end Schedule E summary, and `tax-protest` prepares a Collin County
+  property-tax protest: what to file, the dates, and evidence from the district's own values
+  for similar homes, recent sales and the saved rent research.
 - **Memory**: `memory/memory.md` holds your standing rules for every chat and job.
 
 It runs in Docker on your Mac at <http://localhost:8080>. Data lives in Supabase (Postgres),
@@ -282,6 +284,7 @@ property in Plano, Texas. Check them before relying on the output:
 | Lease extension form | [`templates/lease_extension_template.pdf`](templates/lease_extension_template.pdf); where each value is printed: `FIELDS` in [`src/rental_agent/jobs/lease.py`](src/rental_agent/jobs/lease.py) | You're outside Texas or want different wording (have a lawyer review it) |
 | Time zone `America/Chicago` (scheduler's "today") | `TZ` in [`docker-compose.yml`](docker-compose.yml) | You're in another time zone |
 | Taxes on Schedule E (single-member LLC) | `tax-report` job | Your LLC files a partnership return (Form 1065); ask your CPA |
+| Property-tax protest: Collin County's forms, dates and open data | `tax-protest` job: [`src/rental_agent/jobs/tax_protest.py`](src/rental_agent/jobs/tax_protest.py) and [`src/rental_agent/collin_cad.py`](src/rental_agent/collin_cad.py) | Your property is in another county; the job refuses other counties |
 | Senders to read in Gmail | [`config/email_sources.toml`](config/email_sources.toml) | Always: set your bank and vendors |
 | Agent instructions | [`prompts/agent-prompts.md`](prompts/agent-prompts.md) | You want the assistant to behave differently |
 
