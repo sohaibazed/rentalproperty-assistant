@@ -17,6 +17,7 @@
         <button type="submit">Save this recommendation</button>
       </form>
     {% endif %}
+    {% if run.job in ("research-rent", "generate-lease") %}<p><a href="/renewal">Back to Renewal</a></p>{% endif %}
   </section>
   <section class="card">
     <h2>Files</h2>

@@ -307,25 +307,35 @@ def _save_lease(conn: psycopg.Connection, lease: dict[str, Any], llc_id: int | N
 
     terms = (lease["monthly_rent"], lease["deposit"], lease["original_lease_date"],
              lease["other_terms"])
-    lease_id = _one(conn, """select id from leases
-                             where property_id = %s and start_date = %s and end_date = %s""",
-                    (prop_id, lease["start_date"], lease["end_date"]))
-    if lease_id is None:
+    dates = (lease["start_date"], lease["end_date"])
+    found = conn.execute("""select id, awaiting_signature from leases
+                            where property_id = %s and start_date = %s and end_date = %s""",
+                         (prop_id, *dates)).fetchone()
+    if found is None and lease["original_lease_date"]:
+        # A signed extension whose dates were changed by hand still replaces the unsigned one
+        # that generate-lease recorded.
+        found = conn.execute("""select id, awaiting_signature from leases
+                                where property_id = %s and awaiting_signature
+                                order by end_date desc limit 1""", (prop_id,)).fetchone()
+    if found is None:
         lease_id = _one(conn, """insert into leases (property_id, start_date, end_date, monthly_rent,
                                                      deposit, original_lease_date, other_terms,
                                                      pdf_path)
                                  values (%s, %s, %s, %s, %s, %s, %s, %s) returning id""",
-                        (prop_id, lease["start_date"], lease["end_date"], *terms, pdf_path))
-        done.append(f"Added lease term {lease['start_date']} to {lease['end_date']} at "
+                        (prop_id, *dates, *terms, pdf_path))
+        done.append(f"Added lease term {dates[0]} to {dates[1]} at "
                     f"${Decimal(lease['monthly_rent']):,.2f}/month.")
     else:
-        conn.execute("""update leases set monthly_rent = %s, deposit = coalesce(%s, deposit),
+        lease_id, was_unsigned = found
+        conn.execute("""update leases set start_date = %s, end_date = %s, monthly_rent = %s,
+                          deposit = coalesce(%s, deposit),
                           original_lease_date = coalesce(%s, original_lease_date),
                           other_terms = coalesce(%s, other_terms),
-                          pdf_path = coalesce(%s, pdf_path)
-                        where id = %s""", (*terms, pdf_path, lease_id))
-        done.append(f"Updated the existing lease term {lease['start_date']} to "
-                    f"{lease['end_date']}.")
+                          pdf_path = coalesce(%s, pdf_path), awaiting_signature = false
+                        where id = %s""", (*dates, *terms, pdf_path, lease_id))
+        done.append(f"Marked the extension {dates[0]} to {dates[1]} as signed at "
+                    f"${Decimal(lease['monthly_rent']):,.2f}/month." if was_unsigned else
+                    f"Updated the existing lease term {dates[0]} to {dates[1]}.")
     for tid in tenant_ids:
         conn.execute("""insert into lease_tenants (lease_id, tenant_id) values (%s, %s)
                         on conflict do nothing""", (lease_id, tid))

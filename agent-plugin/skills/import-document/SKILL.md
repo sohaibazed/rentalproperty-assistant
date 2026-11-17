@@ -36,6 +36,7 @@ before proposing).
 - `landlord_names`, `tenant_names`: the people named as parties. For an extension, only the tenants on the extended term (someone removed in "other terms" is not a tenant).
 - `start_date`, `end_date` (YYYY-MM-DD), `monthly_rent`, `deposit` (security deposit; null if not stated).
 - `original_lease_date`: for an extension, the date of the lease it extends.
+- An extension that `generate-lease` wrote is on record as awaiting signature. Importing its signed copy marks that term as signed. If the signed dates or rent differ, the signed ones replace it.
 - `other_terms`: changes or special provisions in one or two sentences (removed tenants, notice period such as "45 days' written notice before expiration", pets, utilities).
 - `owner_llc`: the LLC that owns the property if the owner tells you or the document says; it must already be imported. Otherwise null.
 

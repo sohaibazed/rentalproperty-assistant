@@ -15,7 +15,7 @@
     <nav>
       {% for href, label, tpl in [("/", "Chat", "chat.html"), ("/dashboard", "Dashboard", "dashboard.html"), ("/review", "Review", "review.html"), ("/jobs", "Jobs", "jobs.html"),
           ("/rent", "Rent", "rent.html"), ("/expenses", "Expenses", "expenses.html"),
-          ("/research", "Rent research", "research.html"), ("/leases", "Leases", "leases.html"),
+          ("/research", "Rent research", "research.html"), ("/leases", "Leases", "leases.html"), ("/renewal", "Renewal", "renewal.html"),
           ("/memory", "Memory", "memory.html"), ("/prompts", "Prompts", "prompts.html"), ("/settings", "Settings", "settings.html")] %}
         <a href="{{ href }}" {% if nav == tpl %}aria-current="page"{% endif %}>{{ label }}</a>
       {% endfor %}

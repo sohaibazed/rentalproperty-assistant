@@ -17,7 +17,9 @@
   <table>
     <thead><tr><th>Property</th><th>Term</th><th class="r">Rent</th><th>Tenants</th><th>Documents</th></tr></thead>
     <tbody>{% for l in rows %}<tr>
-      <td>{{ l.address }}</td><td>{{ l.start_date }} → {{ l.end_date }}</td><td class="r">{{ l.monthly_rent | money }}</td>
+      <td>{{ l.address }}</td>
+      <td>{{ l.start_date }} → {{ l.end_date }}
+        {% if l.awaiting_signature %}<a class="pill" href="/renewal">awaiting signature</a>{% endif %}</td><td class="r">{{ l.monthly_rent | money }}</td>
       <td>{{ l.tenants or "-" }}</td>
       <td>{% if l.pdf_path %}<a href="/files/{{ l.pdf_path }}">PDF</a>{% endif %}
           {% if l.docx_path %}<a href="/files/{{ l.docx_path }}">Word</a>{% endif %}</td>

@@ -10,11 +10,11 @@ Nothing here writes to the database or sends anything.
 """
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 
 import psycopg
 
-from rental_agent import db
+from rental_agent import db, renewal
 from rental_agent.jobs import tax_report
 from rental_agent.jobs.lease import NOTICE_DAYS, long_date, money
 
@@ -23,9 +23,12 @@ from rental_agent.jobs.lease import NOTICE_DAYS, long_date, money
 RENT_CHECK_DAY = 12
 # An alert is about recent months. Older gaps stay in the tax report, not on the Dashboard.
 RENT_MONTHS = 3
-# Start the renewal reminder this many days before the notice date: time to research the
-# rent, write the extension and get it signed.
-RENEWAL_LEAD_DAYS = 45
+# The renewal reminder ends with the step to do next (renewal.Renewal.step).
+NEXT_STEP = {
+    "research": "Start with rent research.",
+    "generate": "The rent research is saved. Generate the extension next.",
+    "sign": "The extension is written. Get it signed, then import the signed copy.",
+}
 
 
 @dataclass(frozen=True)
@@ -67,29 +70,24 @@ def rent_items(conn: psycopg.Connection, today: date) -> list[Item]:
 
 
 def renewal_items(conn: psycopg.Connection, today: date) -> list[Item]:
-    """One item per property whose latest lease term needs an extension. A recorded extension
-    is the latest term, so its property drops off the list."""
+    """One item per property whose renewal is open, until its signed extension is imported."""
     items = []
-    for prop in db.load_properties(conn):
-        lease = db.latest_lease(conn, prop.id)
-        if lease is None:
+    for r in renewal.load(conn, today):
+        if r.step == "wait":
             continue
-        end, sign_by = lease.end_date, lease.end_date - timedelta(days=NOTICE_DAYS)
-        if today > end:
-            items.append(Item("now", f"{prop.label}: the lease term ended on {long_date(end)} "
-                              "and no extension is recorded. Import the signed extension, or "
-                              "generate one.", "/jobs#run-a-job", "Run a job"))
-        elif today > sign_by:
-            items.append(Item("now", f"{prop.label}: the {NOTICE_DAYS}-day notice date "
-                              f"({long_date(sign_by)}) has passed and the lease ends on "
-                              f"{long_date(end)}. Without a signed extension it rolls to "
-                              "month-to-month at the current rent.", "/jobs#run-a-job", "Run a job"))
-        elif today >= sign_by - timedelta(days=RENEWAL_LEAD_DAYS):
-            left = (sign_by - today).days
-            when = "today" if left == 0 else f"{left} day{'' if left == 1 else 's'} left"
-            items.append(Item("soon", f"{prop.label}: the lease ends on {long_date(end)}. Get "
-                              f"the extension signed by {long_date(sign_by)} ({when}). Start "
-                              "with rent research.", "/jobs#run-a-job", "Run a job"))
+        end, sign_by = long_date(r.current.end_date), long_date(r.sign_by)
+        if r.timing == "ended":
+            text = f"the lease term ended on {end} and no signed extension is recorded."
+        elif r.timing == "late":
+            text = (f"the {NOTICE_DAYS}-day notice date ({sign_by}) has passed and the lease "
+                    f"ends on {end}. Without a signed extension it rolls to month-to-month at "
+                    "the current rent.")
+        else:
+            text = (f"the lease ends on {end}. Get the extension signed by {sign_by} "
+                    f"({r.time_left}).")
+        level = "now" if r.timing in ("late", "ended") else "soon"
+        items.append(Item(level, f"{r.label}: {text} {NEXT_STEP[r.step]}", "/renewal",
+                          "Open Renewal"))
     return items
 
 

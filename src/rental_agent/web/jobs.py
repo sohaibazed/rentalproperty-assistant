@@ -1,5 +1,5 @@
 """Runs jobs in the background (one at a time), records them in job_runs, and schedules
-the email sync plus a daily database ping."""
+the email sync, a daily database ping, and the rent research that opens each lease renewal."""
 
 import asyncio
 import json
@@ -11,7 +11,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from rental_agent import db, runner
+from rental_agent import db, renewal, runner
 from rental_agent.config import Settings, load_settings
 from rental_agent.web.secrets import GMAIL_TOKEN, SecretStore
 
@@ -94,7 +94,8 @@ def _relative(path: Path, base: Path) -> str:
 
 
 async def scheduler(manager: JobManager, interval_seconds: int = 3600) -> None:
-    """Hourly: ping the database once a day; run sync-email on the 1st, 11th and 21st."""
+    """Hourly: ping the database once a day; run sync-email on the 1st, 11th and 21st; start
+    rent research once when a lease renewal opens."""
     if os.environ.get("RENTAL_SCHEDULER", "on") == "off":
         return
     pinged: date | None = None
@@ -121,6 +122,14 @@ async def _tick(manager: JobManager, pinged: date | None) -> None:
     if today.day in SYNC_DAYS and not already_today and secrets.get(GMAIL_TOKEN) \
             and not manager.busy:
         await manager.start("sync-email", {"since": None, "dry_run": False}, trigger="schedule")
+
+    # After the sync, so a problem here never holds the sync back. One job runs at a time:
+    # if the sync just started, the research waits for the next tick.
+    if settings.claude_env and not manager.busy:
+        with db.connect(settings.db_url) as conn:
+            research = renewal.research_to_start(conn, today)
+        if research:
+            await manager.start("research-rent", research, trigger="schedule")
 
 
 def _as_date(value: datetime | date) -> date:

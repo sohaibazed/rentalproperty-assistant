@@ -13,11 +13,16 @@ A private web app that helps run a small rental-property LLC:
   about. Fix a row, confirm it, or remove it, here or by telling the chat what is wrong.
   Rent and Expenses have an **Edit** link on every row. A removed row is left out of totals
   and reports and can be restored; nothing is deleted.
+- **Renewal**: the yearly lease extension in three steps, with a button for the next one:
+  research the rent, generate the extension, then import the signed copy in the chat. The
+  renewal opens 90 days before the term ends. Rent research then starts by itself, once.
+  A generated extension is recorded as *awaiting signature*, and the Dashboard reminder stays
+  until its signed copy is imported.
 - **Jobs**: `sync-email` imports rent and expense emails from Gmail (automatically on the
-  1st, 11th and 21st), `research-rent` recommends next year's rent from comparable listings,
-  `generate-lease` writes the yearly lease extension as one PDF (the filled-in extension form
-  followed by the original lease), and `tax-report` builds the
-  year-end Schedule E summary.
+  1st, 11th and 21st), `research-rent` recommends next year's rent from comparable listings
+  (automatically when a renewal opens), `generate-lease` writes the yearly lease extension
+  as one PDF (the filled-in extension form followed by the original lease), and `tax-report`
+  builds the year-end Schedule E summary.
 - **Memory**: `memory/memory.md` holds your standing rules for every chat and job.
 
 It runs in Docker on your Mac at <http://localhost:8080>. Data lives in Supabase (Postgres),
@@ -272,7 +277,8 @@ property in Plano, Texas. Check them before relying on the output:
 | Default | Where | Change it if |
 |---|---|---|
 | Renewal notice: 45 days before the lease ends | `NOTICE_DAYS` in [`src/rental_agent/jobs/lease.py`](src/rental_agent/jobs/lease.py) | Your lease's notice clause says otherwise |
-| Rent counts as missing from the 12th of its month; the renewal reminder starts 45 days before the notice date | `RENT_CHECK_DAY` and `RENEWAL_LEAD_DAYS` in [`src/rental_agent/attention.py`](src/rental_agent/attention.py) | Rent isn't due on the 1st, or you want the reminders earlier or later |
+| Rent counts as missing from the 12th of its month | `RENT_CHECK_DAY` in [`src/rental_agent/attention.py`](src/rental_agent/attention.py) | Rent isn't due on the 1st |
+| A renewal opens 45 days before the notice date: the reminder starts and rent research runs once (one Claude research run) | `RENEWAL_LEAD_DAYS` in [`src/rental_agent/renewal.py`](src/rental_agent/renewal.py) | You want more or less time to renew |
 | Lease extension form | [`templates/lease_extension_template.pdf`](templates/lease_extension_template.pdf); where each value is printed: `FIELDS` in [`src/rental_agent/jobs/lease.py`](src/rental_agent/jobs/lease.py) | You're outside Texas or want different wording (have a lawyer review it) |
 | Time zone `America/Chicago` (scheduler's "today") | `TZ` in [`docker-compose.yml`](docker-compose.yml) | You're in another time zone |
 | Taxes on Schedule E (single-member LLC) | `tax-report` job | Your LLC files a partnership return (Form 1065); ask your CPA |

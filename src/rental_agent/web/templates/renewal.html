@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Renewal · Rental Agent{% endblock %}
+
+{# Step 2's form. With an unsigned extension on record, it starts from that one's values. #}
+{% macro extension_form(r) %}
+<form method="post" action="/jobs/generate-lease" class="grid-form edit">
+  <input type="hidden" name="property_id" value="{{ r.property_id }}">
+  <input type="hidden" name="back" value="renewal">
+  <label>Monthly rent
+    <input type="number" name="rent" step="0.01" min="0.01" required
+           value="{{ r.draft.monthly_rent if r.draft else r.research.recommended_rent if r.research else '' }}"></label>
+  <label>Other terms
+    <input name="other_terms" value="{{ (r.draft.other_terms if r.draft) or '' }}" placeholder="Tenant pays water."></label>
+  <label>Start date
+    <input type="date" name="start" value="{{ r.draft.start_date if r.draft else r.next_start }}" required></label>
+  <label>End date
+    <input type="date" name="end" value="{{ r.draft.end_date if r.draft else r.next_end }}" required></label>
+  <div class="row wide">
+    <button name="dry_run" value="on" class="secondary" {% if busy %}disabled{% endif %}>Preview the PDF</button>
+    <button {% if busy %}disabled{% endif %}>{{ "Replace the extension" if r.draft else "Generate the extension" }}</button>
+  </div>
+  <p class="wide small muted">Preview only writes the PDF. Generate also records the new term as awaiting signature.</p>
+</form>
+{% endmacro %}
+
+{% macro badge(done, next) %}
+  {% if done %}<span class="pill success">done</span>{% elif next %}<span class="pill running">next</span>{% endif %}
+{% endmacro %}
+
+{% block content %}
+<h1>Renewal</h1>
+{% include "_db_error.html" %}
+<p class="muted">A lease is extended once a year, in three steps. The renewal opens {{ lead_days }} days before the term ends.
+  The extension must be signed {{ notice_days }} days before the term ends; after that date the lease rolls to month-to-month at the current rent.</p>
+{% for r in renewals %}
+<section class="card">
+  <h2>{{ r.label }}</h2>
+  <p>Current term: {{ r.current.start_date | long_date }} to {{ r.current.end_date | long_date }}
+    at {{ r.current.monthly_rent | money }} a month.</p>
+  {% if r.step == "wait" %}
+    <p>Nothing to do yet. The renewal opens on {{ r.opens_on | long_date }}, and rent research starts by itself then.</p>
+    <p class="small muted">To start earlier, run research-rent and generate-lease from <a href="/jobs#run-a-job">Jobs</a>.</p>
+  {% else %}
+    {% if r.timing == "ended" %}
+      <p class="flash error">This term has ended and no signed extension is recorded.</p>
+    {% elif r.timing == "late" %}
+      <p class="flash error">The {{ notice_days }}-day notice date ({{ r.sign_by | long_date }}) has passed. Without a signed
+        extension the lease rolls to month-to-month at the current rent.</p>
+    {% else %}
+      <p>Get the extension signed by <strong>{{ r.sign_by | long_date }}</strong> ({{ r.time_left }}).</p>
+    {% endif %}
+    <ol class="steps">
+      <li class="{{ 'done' if r.research else 'next' if r.step == 'research' }}">
+        <h3>1. Research the rent for {{ r.year }} {{ badge(r.research, r.step == "research") }}</h3>
+        {% if r.research %}
+          <p>Recommended {{ r.research.recommended_rent | money }} a month, saved on {{ r.research.created_at.astimezone() | long_date }}.
+            {% if r.research.report_path %}<a href="/report/{{ r.research.report_path }}">Read the report</a>{% endif %}</p>
+        {% endif %}
+        {% set run = r.research_run %}
+        {% if run and run.status == "running" %}
+          <p>Research is running: <a href="/runs/{{ run.id }}">run #{{ run.id }}</a>.</p>
+        {% elif not r.research %}
+          {% if run and run.status == "failed" %}
+            <p>The last research failed: <a href="/runs/{{ run.id }}">run #{{ run.id }}</a>, {{ run.started_at.astimezone() | long_date }}.</p>
+          {% endif %}
+          <p class="muted">
+            {% if r.auto_research %}The scheduler starts it once, within the hour, if Claude credentials are set. You can also start it now.
+            {% elif r.step == "research" %}It doesn't start by itself any more. Start it here.
+            {% else %}Skipped: the extension was written without it.{% endif %}
+          </p>
+        {% endif %}
+        <form method="post" action="/jobs/research-rent">
+          <input type="hidden" name="property_id" value="{{ r.property_id }}">
+          <input type="hidden" name="year" value="{{ r.year }}">
+          <input type="hidden" name="back" value="renewal">
+          <button {% if r.research %}class="secondary"{% endif %} {% if busy %}disabled{% endif %}>{{ "Research again" if r.research else "Research the rent now" }}</button>
+        </form>
+      </li>
+      <li class="{{ 'done' if r.draft else 'next' if r.step == 'generate' }}">
+        <h3>2. Generate the extension {{ badge(r.draft, r.step == "generate") }}</h3>
+        {% if r.draft %}
+          <p>Written for {{ r.draft.start_date | long_date }} to {{ r.draft.end_date | long_date }}
+            at {{ r.draft.monthly_rent | money }} a month.
+            {% if r.draft.pdf_path %}<a href="/files/{{ r.draft.pdf_path }}">Open the PDF</a>{% endif %}</p>
+          <details>
+            <summary>Write it again with other terms</summary>
+            {{ extension_form(r) }}
+          </details>
+        {% else %}
+          {{ extension_form(r) }}
+        {% endif %}
+      </li>
+      <li class="{{ 'next' if r.step == 'sign' }}">
+        <h3>3. Get it signed and import the signed copy {{ badge(false, r.step == "sign") }}</h3>
+        {% if r.draft %}
+          <p>Send the extension to the tenant. When the signed copy comes back, attach it in the <a href="/">chat</a>
+            and ask to import it. The term is then recorded as signed, and this renewal is finished.</p>
+        {% else %}
+          <p class="muted">After step 2: send the extension to the tenant, then import the signed copy in the chat.</p>
+        {% endif %}
+      </li>
+    </ol>
+  {% endif %}
+</section>
+{% else %}
+  {% if not db_error %}<section class="card"><p class="muted">No signed lease is recorded yet. Import one in the <a href="/">chat</a>.</p></section>{% endif %}
+{% endfor %}
+{% endblock %}

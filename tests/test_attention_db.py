@@ -83,11 +83,31 @@ def test_renewal_reminder_follows_the_notice_date(leased):
     level, text = renewal(date(2026, 11, 17))[0]
     assert level == "now" and "45-day notice date (November 16, 2026) has passed" in text
     level, text = renewal(date(2027, 1, 5))[0]
-    assert level == "now" and "ended on December 31, 2026 and no extension is recorded" in text
+    assert level == "now" and "ended on December 31, 2026 and no signed extension is recorded" in text
 
-    # Once the extension is recorded it is the latest term, and the reminder stops.
+
+def test_renewal_reminder_names_the_next_step_until_the_extension_is_signed(leased):
+    def next_step(today):
+        return renewal(today)[0][1].split(". ", 1)[1] if renewal(today) else None
+
+    assert next_step(date(2027, 1, 5)) == "Start with rent research."
+    admin("insert into rent_research (property_id, year, comps, recommended_rent) "
+          "values (1, 2027, '[]', 2600)")
+    assert renewal(date(2026, 11, 17))[0][1].endswith(
+        "The rent research is saved. Generate the extension next.")
+
+    # generate-lease records the extension as unsigned: the deadline still counts.
     admin("insert into leases (property_id, start_date, end_date, monthly_rent, "
-          "original_lease_date) values (1, '2027-01-01', '2027-12-31', 2600, '2026-01-01')")
+          "original_lease_date, awaiting_signature) "
+          "values (1, '2027-01-01', '2027-12-31', 2600, '2026-01-01', true)")
+    level, text = renewal(date(2026, 11, 17))[0]
+    assert level == "now" and "(November 16, 2026) has passed" in text
+    assert text.endswith("The extension is written. Get it signed, then import the signed copy.")
+    with psycopg.connect(DB) as conn:
+        assert [i.link for i in attention.renewal_items(conn, date(2026, 11, 17))] == ["/renewal"]
+
+    # Importing the signed copy makes it the current term, and the reminder stops.
+    admin("update leases set awaiting_signature = false")
     assert renewal(date(2026, 11, 17)) == [] and renewal(date(2027, 1, 5)) == []
 
 

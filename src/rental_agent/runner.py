@@ -112,7 +112,8 @@ async def run_job(job: str, params: Mapping[str, Any], settings: Settings) -> Ou
                       other_terms=params.get("other_terms"), dry_run=params["dry_run"])
         summary = list(r.warnings)
         summary.append("Dry run: lease term not recorded." if r.lease_id is None
-                       else f"Recorded lease term id {r.lease_id}.")
+                       else f"Recorded lease term id {r.lease_id} as awaiting signature. Import "
+                            "the signed copy in the chat when it comes back.")
         return Outcome(True, summary, [r.pdf_path])
 
     if job == "tax-report":

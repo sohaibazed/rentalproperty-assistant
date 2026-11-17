@@ -60,12 +60,41 @@ def test_generates_and_records_extension(seeded, tmp_path):
     assert result.context["original_lease_date"] == "November 6, 2024"
 
     with psycopg.connect(ADMIN) as conn:
-        row = conn.execute("select start_date, end_date, monthly_rent, deposit, original_lease_date "
-                           "from leases where id = %s", (result.lease_id,)).fetchone()
-        assert row == (date(2027, 1, 1), date(2027, 12, 31), 2600, 2400, date(2024, 11, 6))
+        row = conn.execute("select start_date, end_date, monthly_rent, deposit, original_lease_date, "
+                           "awaiting_signature from leases where id = %s",
+                           (result.lease_id,)).fetchone()
+        assert row == (date(2027, 1, 1), date(2027, 12, 31), 2600, 2400, date(2024, 11, 6), True)
         tenants = conn.execute("select count(*) from lease_tenants where lease_id = %s",
                                (result.lease_id,)).fetchone()[0]
         assert tenants == 2
+
+
+def test_writing_it_again_replaces_the_unsigned_extension(seeded, tmp_path):
+    def generate(rent, other_terms=None):
+        return lease.run(_settings(tmp_path), property_id=seeded, start=None, end=None,
+                         rent=Decimal(rent), other_terms=other_terms, dry_run=False)
+
+    first = generate(2600)
+    again = generate(2650, "Tenant pays water.")
+    # It still extends the signed 2026 term, not the unsigned 2027 one.
+    assert again.context["start_date"] == "January 1, 2027"
+    assert again.lease_id == first.lease_id
+    assert ("This replaces the unsigned extension written earlier (January 1, 2027 to "
+            "December 31, 2027 at $2,600.00).") in again.warnings
+    with psycopg.connect(ADMIN) as conn:
+        assert conn.execute("select count(*) from leases").fetchone()[0] == 3
+        assert conn.execute("select monthly_rent, other_terms, awaiting_signature from leases "
+                            "where id = %s", (first.lease_id,)).fetchone() \
+            == (2650, "Tenant pays water.", True)
+        assert conn.execute("select count(*) from lease_tenants where lease_id = %s",
+                            (first.lease_id,)).fetchone()[0] == 2
+
+    # Once the signed copy is imported, the next run writes the following year's extension.
+    with psycopg.connect(ADMIN, autocommit=True) as conn:
+        conn.execute("update leases set awaiting_signature = false")
+    following = generate(2700)
+    assert following.context["start_date"] == "January 1, 2028"
+    assert following.lease_id != first.lease_id
 
 
 def test_dry_run_records_nothing_and_rent_comes_from_research(seeded, tmp_path):

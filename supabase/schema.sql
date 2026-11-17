@@ -77,6 +77,10 @@ create table if not exists leases (
   pdf_path             text,
   created_at           timestamptz not null default now()
 );
+-- True from the time generate-lease writes an extension until its signed copy is imported.
+-- Rent research, the next extension and the renewal reminder go by the latest signed term.
+-- An `alter`, so it also upgrades an existing database, where every term counts as signed.
+alter table leases add column if not exists awaiting_signature boolean not null default false;
 
 -- Co-tenants on each lease term.
 create table if not exists lease_tenants (

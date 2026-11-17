@@ -29,9 +29,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from rental_agent import attention, db, gmail, runner
+from rental_agent import attention, db, gmail, renewal, runner
 from rental_agent.config import artifacts_dir, env_or_file, reference_dir
 from rental_agent.jobs import rent_research
+from rental_agent.jobs.lease import NOTICE_DAYS, long_date
 from rental_agent.web import chat_views, review_views
 from rental_agent.web.jobs import JobManager, next_sync_date, scheduler
 from rental_agent.web.secrets import GMAIL_TOKEN, SECRETS, SecretStore
@@ -75,6 +76,7 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         else pysecrets.token_hex(32)
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters["money"] = lambda v: "-" if v is None else f"${v:,.2f}"
+    templates.env.filters["long_date"] = long_date
     oauth_flows: dict[str, tuple[float, object]] = {}
 
     @app.middleware("http")
@@ -197,15 +199,17 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         if job not in runner.JOBS:
             raise HTTPException(404)
         form = await request.form()
+        # The Renewal page starts jobs too; a job that can't start goes back to where it came from.
+        back = "/renewal" if form.get("back") == "renewal" else "/jobs"
         try:
             params = runner.parse_params(job, dict(form))
             run_id = await manager.start(job, params)
         except (ValueError, RuntimeError) as exc:
             flash(request, str(exc), "error")
-            return RedirectResponse("/jobs", status_code=303)
+            return RedirectResponse(back, status_code=303)
         except psycopg.Error as exc:
             flash(request, f"Database error: {exc.__class__.__name__}", "error")
-            return RedirectResponse("/jobs", status_code=303)
+            return RedirectResponse(back, status_code=303)
         return RedirectResponse(f"/runs/{run_id}", status_code=303)
 
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
@@ -313,6 +317,18 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
             with conn:
                 rows, props = db.leases_list(conn), db.properties_list(conn)
         return page(request, "leases.html", rows=rows, props=props, db_error=db_error)
+
+    @app.get("/renewal", response_class=HTMLResponse)
+    async def renewal_page(request: Request):
+        """Each property's yearly renewal: its three steps, and a button for the next one."""
+        conn, db_error = connect()
+        renewals = []
+        if conn:
+            with conn:
+                renewals = renewal.load(conn, date.today())
+        return page(request, "renewal.html", renewals=renewals, db_error=db_error,
+                    notice_days=NOTICE_DAYS,
+                    lead_days=NOTICE_DAYS + renewal.RENEWAL_LEAD_DAYS)
 
     @app.get("/files/{path:path}")
     async def download(path: str):

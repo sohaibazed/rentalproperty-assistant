@@ -217,6 +217,8 @@ class CurrentLease:
     original_lease_date: date | None
     tenant_ids: list[int]
     tenant_names: list[str]
+    other_terms: str | None = None
+    pdf_path: str | None = None
 
     @property
     def lease_being_extended(self) -> date:
@@ -233,21 +235,36 @@ def property_detail(conn: psycopg.Connection, property_id: int) -> PropertyDetai
     return PropertyDetail(*row) if row else None
 
 
-def latest_lease(conn: psycopg.Connection, property_id: int) -> CurrentLease | None:
+def _lease_term(conn: psycopg.Connection, property_id: int, which: str) -> CurrentLease | None:
+    """The property's lease term with the latest end date among those `which` selects."""
     row = conn.execute(
-        """select l.id, l.start_date, l.end_date, l.monthly_rent, l.deposit, l.original_lease_date,
-                  coalesce(array_agg(t.id order by t.id) filter (where t.id is not null), '{}'),
-                  coalesce(array_agg(t.full_name order by t.id) filter (where t.id is not null), '{}')
-           from leases l
-           left join lease_tenants lt on lt.lease_id = l.id
-           left join tenants t on t.id = lt.tenant_id
-           where l.property_id = %s
-           group by l.id
-           order by l.end_date desc, l.id desc
-           limit 1""",
+        f"""select l.id, l.start_date, l.end_date, l.monthly_rent, l.deposit, l.original_lease_date,
+                   coalesce(array_agg(t.id order by t.id) filter (where t.id is not null), '{{}}'),
+                   coalesce(array_agg(t.full_name order by t.id) filter (where t.id is not null), '{{}}'),
+                   l.other_terms, l.pdf_path
+            from leases l
+            left join lease_tenants lt on lt.lease_id = l.id
+            left join tenants t on t.id = lt.tenant_id
+            where l.property_id = %s and {which}
+            group by l.id
+            order by l.end_date desc, l.id desc
+            limit 1""",
         (property_id,),
     ).fetchone()
     return CurrentLease(*row) if row else None
+
+
+def latest_lease(conn: psycopg.Connection, property_id: int) -> CurrentLease | None:
+    """The latest signed term. An extension that is written but not signed doesn't count."""
+    return _lease_term(conn, property_id, "not l.awaiting_signature")
+
+
+def draft_lease(conn: psycopg.Connection, property_id: int) -> CurrentLease | None:
+    """The extension generate-lease wrote that isn't signed yet, if there is one. It counts
+    only while it runs past the latest signed term: a later signed lease supersedes it."""
+    return _lease_term(conn, property_id, """l.awaiting_signature and l.end_date > (
+        select max(s.end_date) from leases s
+        where s.property_id = l.property_id and not s.awaiting_signature)""")
 
 
 def recommended_rent(conn: psycopg.Connection, property_id: int, year: int) -> Decimal | None:
@@ -285,8 +302,8 @@ def insert_lease_extension(
 ) -> int:
     lease_id = conn.execute(
         """insert into leases (property_id, start_date, end_date, monthly_rent, deposit,
-                               original_lease_date, other_terms, pdf_path)
-           values (%s, %s, %s, %s, %s, %s, %s, %s) returning id""",
+                               original_lease_date, other_terms, pdf_path, awaiting_signature)
+           values (%s, %s, %s, %s, %s, %s, %s, %s, true) returning id""",
         (property_id, start_date, end_date, monthly_rent, deposit, original_lease_date,
          other_terms, pdf_path),
     ).fetchone()[0]
@@ -295,6 +312,25 @@ def insert_lease_extension(
             "insert into lease_tenants (lease_id, tenant_id) values (%s, %s)", (lease_id, tenant_id)
         )
     return lease_id
+
+
+def update_lease_draft(
+    conn: psycopg.Connection,
+    lease_id: int,
+    *,
+    start_date: date,
+    end_date: date,
+    monthly_rent: Decimal,
+    other_terms: str | None,
+    pdf_path: str,
+) -> None:
+    """Replace the unsigned extension with the one generate-lease just wrote."""
+    conn.execute(
+        """update leases set start_date = %s, end_date = %s, monthly_rent = %s, other_terms = %s,
+                             pdf_path = %s
+           where id = %s and awaiting_signature""",
+        (start_date, end_date, monthly_rent, other_terms, pdf_path, lease_id),
+    )
 
 
 # --- Rent research ------------------------------------------------------------------------
@@ -313,6 +349,12 @@ def property_size(conn: psycopg.Connection, property_id: int) -> PropertySize | 
         "select property_type, beds, baths, sqft from properties where id = %s", (property_id,)
     ).fetchone()
     return PropertySize(*row) if row else None
+
+
+def rent_research_for(conn: psycopg.Connection, property_id: int, year: int) -> dict | None:
+    rows = _dicts(conn, """select recommended_rent, report_path, created_at from rent_research
+                           where property_id = %s and year = %s""", (property_id, year))
+    return rows[0] if rows else None
 
 
 def rent_research_history(conn: psycopg.Connection, property_id: int) -> list[tuple[int, Decimal]]:
@@ -411,6 +453,26 @@ def last_job_run(conn: psycopg.Connection, job: str, trigger: str) -> dict | Non
     rows = _dicts(conn, """select * from job_runs where job = %s and trigger = %s
                            order by id desc limit 1""", (job, trigger))
     return rows[0] if rows else None
+
+
+def last_research_run(conn: psycopg.Connection, property_id: int) -> dict | None:
+    """The newest research-rent run for a property, however it was started."""
+    rows = _dicts(conn, """select id, status, trigger, started_at from job_runs
+                           where job = 'research-rent' and params->>'property_id' = %s
+                           order by id desc limit 1""", (str(property_id),))
+    return rows[0] if rows else None
+
+
+def research_was_scheduled(conn: psycopg.Connection, property_id: int, year: int) -> bool:
+    """Whether the scheduler already started research-rent for this property and year."""
+    row = conn.execute(
+        """select 1 from job_runs
+           where job = 'research-rent' and trigger = 'schedule'
+             and params->>'property_id' = %s and params->>'year' = %s
+           limit 1""",
+        (str(property_id), str(year)),
+    ).fetchone()
+    return row is not None
 
 
 _RENT_ROWS = """select r.id, r.paid_on, r.amount, r.payer, r.needs_review, r.removed_at,
@@ -525,6 +587,7 @@ def rent_research_list(conn: psycopg.Connection) -> list[dict]:
 def leases_list(conn: psycopg.Connection) -> list[dict]:
     return _dicts(conn, """select l.id, p.address, l.start_date, l.end_date, l.monthly_rent,
                                   l.original_lease_date, l.docx_path, l.pdf_path,
+                                  l.awaiting_signature,
                                   string_agg(t.full_name, ', ' order by t.id) as tenants
                            from leases l join properties p on p.id = l.property_id
                            left join lease_tenants lt on lt.lease_id = l.id

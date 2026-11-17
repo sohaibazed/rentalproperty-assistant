@@ -3,7 +3,9 @@
 Each year the original lease stays in force and a one-page extension changes only the term,
 the rent, and any "other terms". This job stamps data from Postgres onto the blank form in
 templates/lease_extension_template.pdf, appends the signed original lease, and records the new
-lease term. No model call: the wording is fixed, so every year's document is predictable.
+lease term as awaiting signature. It stays that way until the signed copy is imported; until
+then, running this job again replaces it. No model call: the wording is fixed, so every year's
+document is predictable.
 """
 
 import re
@@ -232,7 +234,8 @@ def run(
             raise ValueError(f"No property with id {property_id}")
         current = db.latest_lease(conn, property_id)
         if current is None:
-            raise ValueError(f"Property {property_id} has no lease on record to extend")
+            raise ValueError(f"Property {property_id} has no signed lease on record to extend")
+        draft = db.draft_lease(conn, property_id)
 
         # Defaults: start the day after the current term ends; run one year from the start.
         if start is None:
@@ -264,18 +267,26 @@ def run(
 
         lease_id = None
         if not dry_run:
-            lease_id = db.insert_lease_extension(
-                conn,
-                property_id=property_id,
-                start_date=start,
-                end_date=end,
-                monthly_rent=rent,
-                deposit=current.deposit,
-                original_lease_date=current.lease_being_extended,
-                other_terms=other_terms,
-                tenant_ids=current.tenant_ids,
-                pdf_path=str(pdf.relative_to(settings.artifacts_dir)),
-            )
+            term = {"start_date": start, "end_date": end, "monthly_rent": rent,
+                    "other_terms": other_terms,
+                    "pdf_path": str(pdf.relative_to(settings.artifacts_dir))}
+            if draft is None:
+                lease_id = db.insert_lease_extension(
+                    conn,
+                    property_id=property_id,
+                    deposit=current.deposit,
+                    original_lease_date=current.lease_being_extended,
+                    tenant_ids=current.tenant_ids,
+                    **term,
+                )
+            else:
+                # Nobody has signed the earlier one, so this one takes its place.
+                db.update_lease_draft(conn, draft.id, **term)
+                lease_id = draft.id
+                warnings.append(
+                    f"This replaces the unsigned extension written earlier "
+                    f"({long_date(draft.start_date)} to {long_date(draft.end_date)} at "
+                    f"{money(draft.monthly_rent)}).")
             conn.commit()
 
     return LeaseResult(pdf, lease_id, context, warnings)

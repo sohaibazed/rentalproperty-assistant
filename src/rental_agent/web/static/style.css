@@ -66,6 +66,12 @@ header form { margin: 0; }
 .attention ul { list-style: none; padding: 0; margin: 0 0 10px; }
 .attention li { padding: 6px 0 6px 12px; margin-bottom: 6px; border-left: 3px solid var(--warn); }
 .attention li.now { border-left-color: var(--bad); }
+.steps { list-style: none; padding: 0; margin: 14px 0 0; }
+.steps > li { padding: 2px 0 6px 14px; margin-bottom: 14px; border-left: 3px solid var(--line); }
+.steps > li.done { border-left-color: var(--ok); } .steps > li.next { border-left-color: var(--warn); }
+.steps h3 { font-size: .95rem; margin: 0 0 6px; }
+.steps p { margin: 0 0 8px; }
+.steps summary { cursor: pointer; color: var(--accent); }
 .stats div { display: flex; flex-direction: column; margin-bottom: 10px; }
 .stats .num { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 pre { background: var(--subtle); border: 1px solid var(--line); border-radius: 8px; padding: 12px;
