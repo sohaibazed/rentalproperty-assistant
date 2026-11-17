@@ -36,6 +36,10 @@ def artifacts_dir() -> Path:
     return _path("RENTAL_ARTIFACTS_DIR", "./artifacts")
 
 
+def reference_dir() -> Path:
+    return _path("RENTAL_REFERENCE_DIR", "./reference")
+
+
 def gmail_client_secrets_path() -> Path:
     return _path("GMAIL_CLIENT_SECRETS", "~/.config/rental-agent/gmail_client.json")
 
@@ -73,7 +77,7 @@ def load_settings(secrets: Mapping[str, str] | None = None) -> Settings:
         model=os.environ.get("RENTAL_AGENT_MODEL", "claude-opus-5-5"),
         db_url=db_url,
         artifacts_dir=artifacts_dir(),
-        reference_dir=_path("RENTAL_REFERENCE_DIR", "./reference"),
+        reference_dir=reference_dir(),
         email_sources_path=_path("RENTAL_EMAIL_SOURCES", "./config/email_sources.toml"),
         claude_env={n: v for n in CLAUDE_SECRET_NAMES if (v := value(n))},
         gmail_token=gmail_token,

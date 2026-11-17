@@ -21,8 +21,10 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("RENTAL_SCHEDULER", "off")
     monkeypatch.setenv("RENTAL_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("RENTAL_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("RENTAL_REFERENCE_DIR", str(tmp_path / "reference"))
     monkeypatch.delenv("RENTAL_DB_URL", raising=False)
     (tmp_path / "artifacts").mkdir()
+    (tmp_path / "reference").mkdir()
     return tmp_path, key
 
 
@@ -110,6 +112,17 @@ def test_downloads_stay_inside_artifacts(client, env):
     assert client.get("/files/ok.txt").text == "fine"
     assert client.get("/files/../secret.txt").status_code == 404
     assert client.get("/files/%2e%2e/secret.txt").status_code == 404
+
+
+def test_downloads_fall_back_to_reference(client, env):
+    tmp_path, _ = env
+    (tmp_path / "reference" / "leases").mkdir()
+    (tmp_path / "reference" / "leases" / "orig.pdf").write_text("original")
+    (tmp_path / "artifacts" / "same.txt").write_text("artifact")
+    (tmp_path / "reference" / "same.txt").write_text("reference")
+    assert client.get("/files/leases/orig.pdf").text == "original"   # an original lease
+    assert client.get("/files/same.txt").text == "artifact"          # artifacts/ wins
+    assert client.get("/files/../secret.txt").status_code == 404
 
 
 def test_report_html_is_escaped(client, env):

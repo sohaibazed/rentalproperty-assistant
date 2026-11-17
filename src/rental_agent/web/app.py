@@ -29,7 +29,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from rental_agent import db, gmail, runner
-from rental_agent.config import artifacts_dir, env_or_file
+from rental_agent.config import artifacts_dir, env_or_file, reference_dir
 from rental_agent.jobs import rent_research
 from rental_agent.web import chat_views
 from rental_agent.web.jobs import JobManager, next_sync_date, scheduler
@@ -388,8 +388,9 @@ def _same_origin(request: Request) -> bool:
 
 
 def _artifact(path: str) -> Path:
-    base = artifacts_dir().resolve()
-    file = (base / path).resolve()
-    if not file.is_relative_to(base) or not file.is_file():
-        raise HTTPException(404)
-    return file
+    """A file under artifacts/ or, like an original lease's pdf_path, under reference/."""
+    for base in (artifacts_dir().resolve(), reference_dir().resolve()):
+        file = (base / path).resolve()
+        if file.is_relative_to(base) and file.is_file():
+            return file
+    raise HTTPException(404)
