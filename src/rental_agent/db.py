@@ -16,6 +16,8 @@ class Property:
     id: int
     address: str
     unit: str | None
+    purchase_date: date | None = None     # with cost_basis: the tax report's depreciation estimate
+    cost_basis: Decimal | None = None     # the building, without the land
 
     @property
     def label(self) -> str:
@@ -27,7 +29,8 @@ def connect(db_url: str) -> psycopg.Connection:
 
 
 def load_properties(conn: psycopg.Connection) -> list[Property]:
-    rows = conn.execute("select id, address, unit from properties order by id").fetchall()
+    rows = conn.execute("""select id, address, unit, purchase_date, cost_basis
+                           from properties order by id""").fetchall()
     return [Property(*r) for r in rows]
 
 
@@ -608,7 +611,21 @@ def leases_list(conn: psycopg.Connection) -> list[dict]:
 
 def properties_list(conn: psycopg.Connection) -> list[dict]:
     return _dicts(conn, """select id, address, unit, city, state, zip, property_type, beds,
-                                  baths, sqft from properties order by id""")
+                                  baths, sqft, purchase_date, cost_basis
+                           from properties order by id""")
+
+
+def update_property_facts(conn: psycopg.Connection, property_id: int, *,
+                          property_type: str | None, beds: str | None, baths: str | None,
+                          sqft: int | None, purchase_date: str | None,
+                          cost_basis: str | None) -> bool:
+    """Returns False if there is no such property."""
+    cur = conn.execute(
+        """update properties set property_type = %s, beds = %s, baths = %s, sqft = %s,
+                                 purchase_date = %s, cost_basis = %s
+           where id = %s""",
+        (property_type, beds, baths, sqft, purchase_date, cost_basis, property_id))
+    return cur.rowcount == 1
 
 
 def reference_documents_list(conn: psycopg.Connection) -> list[dict]:

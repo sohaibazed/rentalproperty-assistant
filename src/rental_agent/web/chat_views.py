@@ -21,6 +21,7 @@ from rental_agent import (
     doc_import,
     memory,
     prompts,
+    property_facts,
     runner,
     statement_import,
 )
@@ -255,7 +256,8 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
                     uploads = (artifacts_dir() / "chat-uploads").resolve()
                     if not source.is_relative_to(uploads) or not source.is_file():
                         raise ValueError("the attached file is missing")
-                    lines = doc_import.apply(conn, prop["data"], source)
+                    lines = doc_import.apply(conn, prop["data"], source,
+                                             set(raw_form.getlist("row")))
                     prop["status"], prop["result"] = "done", "Saved. " + " ".join(lines)
                 elif prop["kind"] == "statement":
                     selected = set(raw_form.getlist("row"))
@@ -271,6 +273,11 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
                                          if counts["skipped"] else "."))
                 elif prop["kind"] == "correction":
                     prop["result"] = corrections.apply(conn, prop["data"], datetime.now().date())
+                    prop["status"] = "done"
+                elif prop["kind"] == "property":
+                    # The owner may edit the card before saving; the form is checked again.
+                    prop["result"] = property_facts.save(conn, prop["data"]["property_id"], form,
+                                                         datetime.now().date())
                     prop["status"] = "done"
                 elif prop["kind"] == "job":
                     options = {k: ("on" if v is True else "" if v in (None, False) else str(v))

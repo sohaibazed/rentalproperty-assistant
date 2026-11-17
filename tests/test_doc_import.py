@@ -27,6 +27,20 @@ LLC = {
             "mailing_address": None},
 }
 
+FORM_1098 = {
+    "doc_type": "form_1098", "title": "2025 Form 1098, 12 Oak St", "owner_llc": None,
+    "llc": None, "lease": None, "summary": "Box 1 interest $8,123.45. Box 10 taxes $4,812.37.",
+    "property_id": 1,
+    "expenses": [
+        {"date": "2025-12-31", "amount": 8123.45, "category": "mortgage_interest",
+         "vendor": " Big  Bank ", "description": "Mortgage interest 2025, Form 1098 box 1",
+         "include": True, "note": None},
+        {"date": "2025-12-31", "amount": "4812.37", "category": "taxes", "vendor": "Big Bank",
+         "description": "Real estate taxes paid from escrow, box 10", "include": True,
+         "note": "Also on the county receipt?"},
+    ],
+}
+
 
 def _with(base, path, value):
     data = copy.deepcopy(base)
@@ -69,6 +83,37 @@ def test_llc_checks():
         doc_import.validate(_with(LLC, ("llc", "ein"), "391234567"))
     with pytest.raises(ValueError, match="needs the llc facts"):
         doc_import.validate(_with(LLC, ("llc",), None))
+
+
+def test_year_end_document_carries_expense_lines():
+    data = doc_import.validate(FORM_1098)
+    interest, taxes = data["expenses"]
+    assert data["property_id"] == 1 and data["lease"] is None
+    assert interest == {"id": interest["id"], "date": "2025-12-31", "amount": "8123.45",
+                        "category": "mortgage_interest", "vendor": "Big Bank",
+                        "description": "Mortgage interest 2025, Form 1098 box 1",
+                        "include": True, "note": None, "existing": None}
+    assert interest["id"].startswith("doc:") and interest["id"] != taxes["id"]
+    # The id doesn't depend on the wording, so a second import can't record the line twice.
+    reworded = _with(FORM_1098, ("expenses", 0, "description"), "Interest paid")
+    assert doc_import.validate(reworded)["expenses"][0]["id"] == interest["id"]
+    assert doc_import.validate(data) == data                  # a stored card checks out again
+    twice = doc_import.validate({**FORM_1098, "expenses": [FORM_1098["expenses"][0]] * 2})
+    assert twice["expenses"][0]["id"] != twice["expenses"][1]["id"]
+    assert doc_import.validate({**FORM_1098, "expenses": []})["expenses"] == []
+
+
+@pytest.mark.parametrize("path,value,error", [
+    (("property_id",), None, "needs property_id"),
+    (("expenses", 0, "date"), "2099-01-01", "is in the future"),
+    (("expenses", 0, "amount"), 0, "amount must be more than"),
+    (("expenses", 1, "category"), "escrow", "category must be one of"),
+    (("expenses", 0, "description"), "", "description is required"),
+    (("doc_type",), "other", "can't carry expense lines"),
+])
+def test_year_end_document_rules(path, value, error):
+    with pytest.raises(ValueError, match=error):
+        doc_import.validate(_with(FORM_1098, path, value))
 
 
 def test_document_text_uses_summary_for_files_without_text(tmp_path):

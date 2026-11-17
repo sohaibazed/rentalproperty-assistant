@@ -45,6 +45,9 @@ SCHEDULE_E_LINES: list[tuple[str, str, str]] = [
 DE_MINIMIS_LIMIT = Decimal(2500)
 CAPITALIZABLE_CATEGORIES = {"repairs", "supplies", "cleaning_maintenance"}
 
+# Residential rental property (IRS Publication 527): straight line over 27.5 years.
+RECOVERY_MONTHS = 330
+
 UNASSIGNED = None  # column key for LLC-wide expenses and rent not matched to a property
 MONEY_FORMAT = '"$"#,##0.00'
 
@@ -120,9 +123,7 @@ def build_report(
                           "(late payment or not yet synced?)"))
 
     if not any(cat == "depreciation" for _, cat in expense_totals):
-        flags.append(Flag("note", None, None, "-",
-                          "No depreciation recorded; your CPA computes it from each property's "
-                          "cost basis (Form 4562)"))
+        flags.extend(depreciation_flags(year, properties))
 
     used = set(rent_totals) | {k for k, _ in expense_totals}
     columns = [(p.id, p.label) for p in properties if p.id in used]
@@ -131,6 +132,42 @@ def build_report(
 
     return Report(year, columns, dict(rent_totals), dict(expense_totals), flags,
                   list(rents), list(expenses))
+
+
+def depreciation(cost_basis: Decimal, placed_in_service: date, year: int) -> Decimal:
+    """Estimated depreciation for one tax year: the building's cost basis spread evenly over
+    330 months, counted from the middle of the month it was placed in service (the mid-month
+    convention)."""
+    start = Decimal(placed_in_service.month) - Decimal("0.5")   # months after January 1
+    year_start = Decimal(12 * (year - placed_in_service.year))
+    months = min(year_start + 12, start + RECOVERY_MONTHS) - max(year_start, start)
+    return (cost_basis * max(months, Decimal(0)) / RECOVERY_MONTHS).quantize(Decimal("0.01"))
+
+
+def depreciation_flags(year: int, properties: list[db.Property]) -> list[Flag]:
+    """For a year with no depreciation recorded: an estimate for each property whose purchase
+    date and cost basis are known, and a note that names the others. The estimate is a line
+    on the Review sheet only; it is not added to the Schedule E totals."""
+    flags = []
+    unknown = []
+    for p in properties:
+        if p.purchase_date is None or p.cost_basis is None:
+            unknown.append(p.label)
+            continue
+        amount = depreciation(p.cost_basis, p.purchase_date, year)
+        if amount:
+            flags.append(Flag(
+                "depreciation estimate", None, amount, p.label,
+                f"Not in the Schedule E totals. Straight line over 27.5 years, mid-month "
+                f"convention, on a ${p.cost_basis:,.2f} cost basis in service from "
+                f"{p.purchase_date:%B %Y}. Your CPA files Form 4562: check that the basis "
+                "leaves out the land and that the home was ready to rent from that date"))
+    if unknown or not properties:
+        flags.append(Flag("note", None, None, ", ".join(unknown) or "-",
+                          "No depreciation recorded; your CPA computes it from each property's "
+                          "cost basis (Form 4562). For an estimate here, tell the chat the "
+                          "purchase date and the cost basis without land"))
+    return flags
 
 
 @dataclass(frozen=True)

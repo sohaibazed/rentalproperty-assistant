@@ -2,12 +2,13 @@
 
 import json
 import os
+from decimal import Decimal
 
 import psycopg
 import pytest
 
 from rental_agent import cli, doc_import
-from tests.test_doc_import import LEASE, LLC
+from tests.test_doc_import import FORM_1098, LEASE, LLC
 
 DB = os.environ.get("TEST_DATABASE_URL")
 ADMIN = os.environ.get("TEST_ADMIN_DATABASE_URL")
@@ -85,6 +86,58 @@ def test_signed_extension_replaces_the_unsigned_one(tmp_path):
     assert any(line.startswith("Marked the extension 2027-01-01 to 2027-06-30") for line in lines)
     assert [t[:2] + t[4:] for t in terms()] == [("2026-01-01", "2026-12-31", False),
                                                ("2027-01-01", "2027-06-30", False)]
+
+
+def test_year_end_document_records_each_expense_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("RENTAL_ARTIFACTS_DIR", str(tmp_path))
+    src = tmp_path / "chat-uploads" / "1" / "1098.md"
+    src.parent.mkdir(parents=True)
+    src.write_text("Form 1098 text")
+    with psycopg.connect(ADMIN, autocommit=True) as conn:
+        conn.execute("insert into properties (address, city, zip) values ('12 Oak St', 'Plano', "
+                     "'75024')")
+        # The county's receipt, saved earlier by a statement import under the date it was paid:
+        # the same year as the form, eleven months before the form's December 31.
+        conn.execute("insert into expenses (property_id, amount, spent_on, vendor, "
+                     "schedule_e_category) values (1, 4812.37, '2025-01-28', 'County', 'taxes')")
+
+    def expenses():
+        with psycopg.connect(ADMIN) as conn:
+            return conn.execute("select spent_on::text, amount, schedule_e_category, vendor, "
+                                "receipt_path from expenses order by id").fetchall()
+
+    with psycopg.connect(DB) as conn:
+        marked = doc_import.mark_existing(conn, doc_import.validate(FORM_1098))
+        assert [(line["include"], line["existing"]) for line in marked["expenses"]] == [
+            (True, None), (False, "same amount already recorded on Jan 28, 2025 (taxes)")]
+        lines = doc_import.apply(conn, FORM_1098, src)           # as the command line does
+        conn.commit()
+    assert lines == ["Recorded $8,123.45 of mortgage interest on 2025-12-31.",
+                     "Saved the document text as imports/1098.md for questions in the chat."]
+    assert expenses()[1] == ("2025-12-31", Decimal("8123.45"), "mortgage_interest", "Big Bank",
+                             "chat-uploads/1/1098.md")
+
+    # A second import records nothing. Ticking both lines anyway adds only the one that is new.
+    ticked = {line["id"] for line in marked["expenses"]}
+    with psycopg.connect(DB) as conn:
+        assert doc_import.apply(conn, FORM_1098, src)[0] == "No expense was recorded."
+        lines = doc_import.apply(conn, FORM_1098, src, ticked)
+        conn.commit()
+        assert conn.execute("select category, title from reference_documents").fetchall() == [
+            ("notes", "2025 Form 1098, 12 Oak St")]
+    assert lines[:2] == [
+        "Skipped $8,123.45 of mortgage interest on 2025-12-31: it was imported before.",
+        "Recorded $4,812.37 of taxes on 2025-12-31."]
+    assert len(expenses()) == 3
+
+    # A line the owner removed on the Expenses page stays out.
+    with psycopg.connect(ADMIN, autocommit=True) as conn:
+        conn.execute("update expenses set removed_at = now() where id = 2")
+    with psycopg.connect(DB) as conn:
+        marked = doc_import.mark_existing(conn, doc_import.validate(FORM_1098))
+        assert marked["expenses"][0]["existing"] == "removed earlier; restore it on the Expenses page"
+        with pytest.raises(ValueError, match="no property with id 9"):
+            doc_import.apply(conn, {**FORM_1098, "property_id": 9}, src)
 
 
 def test_unknown_owner_llc_is_rejected(tmp_path):

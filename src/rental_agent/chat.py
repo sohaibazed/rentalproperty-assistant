@@ -9,8 +9,8 @@ Tools:
   lease or LLC document; the import-statement skill and propose_statement_import, for rent and
   expenses in a bank or card statement;
 - propose_expense / propose_job / propose_memory / propose_document_import /
-  propose_correction, which only record a *proposal*. The web app shows each as a card;
-  nothing is saved, changed, run or remembered until the owner clicks.
+  propose_correction / propose_property_update, which only record a *proposal*. The web app
+  shows each as a card; nothing is saved, changed, run or remembered until the owner clicks.
 Attachments are sent to the model as content blocks; the agent has no file or shell tools.
 """
 
@@ -37,7 +37,16 @@ from claude_agent_sdk import (
     tool,
 )
 
-from rental_agent import corrections, db, doc_import, memory, prompts, runner, statement_import
+from rental_agent import (
+    corrections,
+    db,
+    doc_import,
+    memory,
+    prompts,
+    property_facts,
+    runner,
+    statement_import,
+)
 from rental_agent.config import Settings, data_dir
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
 
@@ -175,8 +184,8 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
         with connect() as conn:
             return _rows(db.rent_research_list(conn))
 
-    @tool("list_properties", "Properties with ids, address, type, beds, baths, sq ft.",
-          none_schema)
+    @tool("list_properties", "Properties with ids, address, type, beds, baths, sq ft, purchase "
+          "date and cost basis.", none_schema)
     async def list_properties(args):
         with connect() as conn:
             return _rows(db.properties_list(conn))
@@ -254,8 +263,9 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
         return propose("job", {"job": job, "options": {k: v for k, v in options.items()}})
 
     @tool("propose_document_import", "Show the owner a card to save a new lease or LLC "
-          "document's facts (LLC, property, tenants, lease term) and its text. Follow the "
-          "import-document skill first. Does not save anything.",
+          "document's facts (LLC, property, tenants, lease term) or a year-end document's "
+          "expense lines (Form 1098, property tax statement, insurance declaration), and the "
+          "document's text. Follow the import-document skill first. Does not save anything.",
           {**doc_import.IMPORT_SCHEMA,
            "properties": {**doc_import.IMPORT_SCHEMA["properties"],
                           "attachment": {"type": "string",
@@ -268,9 +278,18 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
                         "this message. Ask the owner to attach the document again.")
         try:
             data = doc_import.validate(args)
+            if data["doc_type"] in doc_import.YEAR_END_TYPES:
+                with connect() as conn:
+                    data = doc_import.mark_existing(conn, data)
         except ValueError as exc:
             return _err(f"Not proposed: {exc}")
-        return propose("document", {**data, "attachment": attachment})
+        result = propose("document", {**data, "attachment": attachment})
+        already = [line for line in data["expenses"] if line["existing"]]
+        if already:
+            result["content"].append({"type": "text", "text":
+                f"{len(already)} expense line(s) look already recorded and are unticked: "
+                + "; ".join(f"{e['date']} ${e['amount']} ({e['existing']})" for e in already)})
+        return result
 
     @tool("propose_statement_import", "Show the owner a table of rent payments and rental "
           "expenses from an attached statement, to tick and save. Follow the import-statement "
@@ -331,6 +350,35 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
                 return _err(f"Not proposed: {exc}")
         return propose("correction", card)
 
+    nullable_number = {"type": ["number", "null"]}
+
+    @tool("propose_property_update", "Show the owner a card to set a property's facts. Rent "
+          "research and the tax protest need property_type, beds, baths and sqft; the tax "
+          "report estimates depreciation from purchase_date and cost_basis (the building "
+          "only, without the land). `changes` holds only the facts to change; null clears "
+          "one. Does not change anything.", {
+              "type": "object",
+              "properties": {
+                  "property_id": {"type": "integer"},
+                  "changes": {"type": "object", "properties": {
+                      "property_type": {"type": ["string", "null"],
+                                        "description": "e.g. 'single-family house', 'townhome'"},
+                      "beds": nullable_number, "baths": nullable_number,
+                      "sqft": {"type": ["integer", "null"]},
+                      "purchase_date": {"type": ["string", "null"], "description": "YYYY-MM-DD"},
+                      "cost_basis": nullable_number}},
+                  "reason": {"type": "string", "description": "one short sentence, shown on "
+                             "the card: where the facts come from"},
+              },
+              "required": ["property_id", "changes", "reason"]})
+    async def propose_property_update(args):
+        with connect() as conn:
+            try:
+                card = property_facts.propose(conn, args, date.today())
+            except ValueError as exc:
+                return _err(f"Not proposed: {exc}")
+        return propose("property", card)
+
     @tool("propose_memory", "Show the owner a card to add one standing rule to memory.md.",
           {"type": "object", "properties": {"rule": {"type": "string"}}, "required": ["rule"]})
     async def propose_memory(args):
@@ -342,7 +390,7 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
     return [year_summary, list_rent_payments, list_expenses, list_leases, list_rent_research,
             list_properties, list_job_runs, list_reference_documents, read_reference_document,
             propose_expense, propose_job, propose_document_import, propose_statement_import,
-            propose_correction, propose_memory]
+            propose_correction, propose_property_update, propose_memory]
 
 
 def build_tools(settings: Settings, proposals: list[dict[str, Any]], attachments: set[str]):

@@ -5,7 +5,7 @@ from decimal import Decimal as D
 from openpyxl import load_workbook
 
 from rental_agent.db import ExpenseRow, LeaseRow, Property, RentRow
-from rental_agent.jobs.tax_report import build_report, write_csv, write_xlsx
+from rental_agent.jobs.tax_report import build_report, depreciation, write_csv, write_xlsx
 
 PROPS = [Property(1, "12 Oak St", None), Property(2, "9 Elm Ave", None)]
 LEASES = [
@@ -59,6 +59,36 @@ def test_flags():
     ])
     gaps = {f.detail[:8] for f in _report().flags if f.kind.endswith("rent")}
     assert gaps == {"Mar 2026", "Jun 2026"}
+
+
+def test_depreciation_spreads_the_basis_over_330_months():
+    basis, bought = D(275000), date(2021, 7, 9)
+    assert depreciation(basis, bought, 2020) == 0             # before the purchase
+    assert depreciation(basis, bought, 2021) == D("4583.33")  # mid-July to December: 5.5 months
+    assert depreciation(basis, bought, 2026) == D("10000.00")
+    assert depreciation(basis, bought, 2049) == D("416.67")   # the last half month
+    assert depreciation(basis, bought, 2050) == 0
+    assert abs(sum(depreciation(basis, bought, y) for y in range(2021, 2050)) - basis) < 1
+    # The IRS table's first-year rates for January and December: 3.485% and 0.152%.
+    assert depreciation(D(100000), date(2026, 1, 31), 2026) == D("3484.85")
+    assert depreciation(D(100000), date(2026, 12, 1), 2026) == D("151.52")
+
+
+def test_depreciation_estimate_is_a_review_line_not_an_expense():
+    props = [Property(1, "12 Oak St", None, date(2021, 7, 9), D(275000)), PROPS[1]]
+    r = build_report(2026, props, _rents(), EXPENSES, LEASES, date(2027, 1, 15))
+    [estimate] = [f for f in r.flags if f.kind == "depreciation estimate"]
+    assert (estimate.amount, estimate.who) == (D("10000.00"), "12 Oak St")
+    assert "$275,000.00 cost basis in service from July 2021" in estimate.detail
+    [note] = [f for f in r.flags if f.kind == "note"]
+    assert note.who == "9 Elm Ave" and "tell the chat" in note.detail
+    assert r.total_expenses(1) == D(4250)                     # the totals are unchanged
+
+    # With depreciation recorded for the year, there is nothing to estimate.
+    recorded = [*EXPENSES, ExpenseRow(6, 1, D(9000), date(2026, 12, 31), "CPA", None,
+                                      "depreciation", None, False)]
+    r = build_report(2026, props, _rents(), recorded, LEASES, date(2027, 1, 15))
+    assert not [f for f in r.flags if f.kind in ("depreciation estimate", "note")]
 
 
 def test_unfinished_months_not_flagged_as_missing():

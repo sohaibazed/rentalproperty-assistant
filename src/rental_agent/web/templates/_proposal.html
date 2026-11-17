@@ -55,11 +55,32 @@
           {% if lease.original_lease_date %}<dt>Extends lease of</dt><dd>{{ lease.original_lease_date }}</dd>{% endif %}
           {% if lease.other_terms %}<dt>Other terms</dt><dd>{{ lease.other_terms }}</dd>{% endif %}
         {% endif %}
+        {% if p.data.property_id %}<dt>Property</dt><dd>{% for pr in properties if pr.id == p.data.property_id %}{{ pr.address }}{% endfor %}</dd>{% endif %}
         <dt>Text</dt><dd>Saved for questions in the chat.</dd>
       </dl>
-      <form method="post" action="{{ action }}" class="row">
-        <button name="action" value="confirm">Save</button>
-        <button name="action" value="dismiss" class="secondary">Dismiss</button>
+      <form method="post" action="{{ action }}">
+        {% if p.data.expenses %}
+          <div class="table-scroll"><table class="small">
+            <thead><tr><th>Save</th><th>Date</th><th>Amount</th><th>Category</th><th>Description</th><th>Note</th></tr></thead>
+            <tbody>
+            {% for e in p.data.expenses %}
+              <tr{% if e.existing %} class="muted"{% endif %}>
+                <td><input type="checkbox" name="row" value="{{ e.id }}" aria-label="Record expense {{ loop.index }}" {% if e.include %}checked{% endif %}></td>
+                <td>{{ e.date }}</td>
+                <td class="num">{{ "$%.2f" % (e.amount | float) }}</td>
+                <td>{{ e.category.replace("_", " ") }}</td>
+                <td>{{ e.description }}{% if e.vendor %} · {{ e.vendor }}{% endif %}</td>
+                <td>{{ e.existing or e.note or "" }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table></div>
+          <p class="small muted">Save records each ticked line as an expense, with this document as its receipt.</p>
+        {% endif %}
+        <div class="row">
+          <button name="action" value="confirm">Save</button>
+          <button name="action" value="dismiss" class="secondary">Dismiss</button>
+        </div>
       </form>
     {% endif %}
   {% elif p.kind == "statement" %}
@@ -110,6 +131,28 @@
         <button name="action" value="confirm">{{ "Remove" if p.data.action == "remove" else "Save" }}</button>
         <button name="action" value="dismiss" class="secondary">Dismiss</button>
         <a href="/{{ 'rent' if p.data.kind == 'rent' else 'expenses' }}/{{ p.data.row_id }}">Edit instead</a>
+      </form>
+    {% endif %}
+  {% elif p.kind == "property" %}
+    <h4>{{ "Property facts to save" if p.status == "pending" else "Property facts" }}: {{ p.data.address }}</h4>
+    {% if p.status == "pending" %}
+      {% set f = p.data.facts %}
+      <dl class="facts small">
+        {% for c in p.data.changes %}<dt>{{ c.field }}</dt><dd>{{ c.from }} → {{ c.to }}</dd>{% endfor %}
+      </dl>
+      {% if p.data.reason %}<p class="small muted">{{ p.data.reason }}</p>{% endif %}
+      <form method="post" action="{{ action }}" class="grid-form">
+        <label>Type <input name="property_type" maxlength="60" value="{{ f.property_type or '' }}" placeholder="single-family house"></label>
+        <label>Sq ft <input type="number" name="sqft" step="1" min="100" value="{{ f.sqft or '' }}"></label>
+        <label>Beds <input type="number" name="beds" step="0.5" min="0" max="20" value="{{ f.beds or '' }}"></label>
+        <label>Baths <input type="number" name="baths" step="0.5" min="0" max="20" value="{{ f.baths or '' }}"></label>
+        <label>Purchase date <input type="date" name="purchase_date" value="{{ f.purchase_date or '' }}"></label>
+        <label>Cost basis without land <input type="number" name="cost_basis" step="0.01" min="0.01" value="{{ f.cost_basis or '' }}"></label>
+        <p class="wide small muted">Leave a fact empty if you don't know it. The cost basis is the building only; the tax report estimates depreciation from it.</p>
+        <div class="row wide">
+          <button name="action" value="confirm">Save facts</button>
+          <button name="action" value="dismiss" class="secondary" formnovalidate>Dismiss</button>
+        </div>
       </form>
     {% endif %}
   {% elif p.kind == "memory" %}

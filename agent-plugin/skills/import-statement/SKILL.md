@@ -46,7 +46,7 @@ Set `property_id` (null for a whole-LLC cost such as a CPA or state filing fee) 
 **Leave out** (don't list them at all):
 - **Mortgage payments.** The payment is mostly principal, which isn't deductible. Only the
   interest is, and it comes from the lender's Form 1098 at year end. Tell the owner this, and
-  that they can add the year's interest as one `mortgage_interest` expense from the 1098.
+  that attaching the Form 1098 in the chat records the year's interest.
   If the statement itself splits out the interest, you may list just the interest part.
 - Transfers between the owner's own accounts, owner contributions and owner draws.
 - Personal spending, and the security deposit (it's the tenant's money, not income).

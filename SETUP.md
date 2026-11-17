@@ -3,9 +3,10 @@
 A private web app that helps run a small rental-property LLC:
 
 - **Chat** (home page): ask questions, attach receipts to record expenses, import bank or card
-  statements to record rent and expenses, import new leases and LLC documents, ask about your
-  leases or local rental rules, and start jobs. Every change waits for you to click a confirm
-  card.
+  statements to record rent and expenses, import new leases and LLC documents, import the
+  year-end Form 1098, property tax statement and insurance declaration, set a property's
+  facts, ask about your leases or local rental rules, and start jobs. Every change waits for
+  you to click a confirm card.
 - **Dashboard**: a **Needs attention** list at the top: rent that is missing or short in
   the last three months, the lease renewal deadline, rows waiting for review, and a failed
   email sync. The chat home page shows how many items there are.
@@ -22,9 +23,10 @@ A private web app that helps run a small rental-property LLC:
   1st, 11th and 21st), `research-rent` recommends next year's rent from comparable listings
   (automatically when a renewal opens), `generate-lease` writes the yearly lease extension
   as one PDF (the filled-in extension form followed by the original lease), `tax-report`
-  builds the year-end Schedule E summary, and `tax-protest` prepares a Collin County
-  property-tax protest: what to file, the dates, and evidence from the district's own values
-  for similar homes, recent sales and the saved rent research.
+  builds the year-end Schedule E summary (with a depreciation estimate on its Review sheet
+  when the property's purchase date and cost basis are set), and `tax-protest` prepares a
+  Collin County property-tax protest: what to file, the dates, and evidence from the
+  district's own values for similar homes, recent sales and the saved rent research.
 - **Memory**: `memory/memory.md` holds your standing rules for every chat and job.
 
 It runs in Docker on your Mac at <http://localhost:8080>. Data lives in Supabase (Postgres),
@@ -237,13 +239,12 @@ The jobs need your property, tenants and current lease. You don't type them in: 
    property, landlords, tenants, term, rent and deposit. Saving adds the property, links it
    to your LLC, adds the tenants and the lease term, and stores the document's text so the
    chat can answer questions about it later.
-3. A lease doesn't state the property's size, which rent research needs. In the Supabase SQL
-   Editor, fill it in (find the id on the **Leases** page):
-
-   ```sql
-   update properties set property_type = 'townhouse', beds = 3, baths = 2.5, sqft = 1950
-   where id = 1;
-   ```
+3. A lease doesn't state the property's type and size, which rent research and the tax
+   protest need. Tell the chat, for example "8705 Empire Blvd is a townhouse with 3 beds, 2.5
+   baths and 1,950 sq ft". Claude shows a card with the facts; change anything that is wrong
+   and click **Save facts**. For a depreciation estimate in the tax report, also give the
+   purchase date and the cost basis of the building, without the land. The **Leases** page
+   lists what is saved.
 
 4. Open **Memory** and add your standing rules (for example, which vendors are personal).
 5. To fill in past rent and expenses, attach a bank, card or Zelle/Venmo statement export
@@ -252,7 +253,14 @@ The jobs need your property, tenants and current lease. You don't type them in: 
    **Save ticked rows**. Rows already recorded (imported before, or the same amount recorded
    by the email sync within 3 days) start unticked, and importing an overlapping statement
    never adds a row twice. Mortgage payments are left out: only the interest is deductible,
-   so add the year's interest from your lender's Form 1098 as one `mortgage_interest` expense.
+   and it comes from your lender's Form 1098 (next step).
+6. At year end, attach your lender's **Form 1098**, the county's **property tax statement**
+   or receipt, and the **insurance declaration**, each with the message "import this". The
+   card lists the expense lines it found (the year's mortgage interest, the tax paid, the
+   premium) with a tick box each. **Save** records the ticked lines with the document as the
+   receipt and stores its text. A line starts unticked when the same amount is already
+   recorded within a year of its date, so money a statement import already saved isn't
+   counted twice.
 
 Import LLC documents before leases, so each property is linked to its LLC. Re-importing a
 document updates its records instead of duplicating them. The same steps work for a second

@@ -6,11 +6,14 @@
 <section class="card">
   <h2>Properties</h2>
   <table>
-    <thead><tr><th>ID</th><th>Address</th><th>Type</th><th>Beds</th><th>Baths</th><th>Sq ft</th></tr></thead>
+    <thead><tr><th>ID</th><th>Address</th><th>Type</th><th>Beds</th><th>Baths</th><th>Sq ft</th><th>Purchased</th><th class="r">Cost basis</th></tr></thead>
     <tbody>{% for p in props %}<tr><td>{{ p.id }}</td><td>{{ p.address }}{% if p.unit %}, {{ p.unit }}{% endif %}, {{ p.city }} {{ p.zip }}</td>
-      <td>{{ p.property_type or "-" }}</td><td>{{ p.beds or "-" }}</td><td>{{ p.baths or "-" }}</td><td>{{ p.sqft or "-" }}</td></tr>
-    {% else %}<tr><td colspan="6" class="muted">No properties yet.</td></tr>{% endfor %}</tbody>
+      <td>{{ p.property_type or "-" }}</td><td>{{ p.beds or "-" }}</td><td>{{ p.baths or "-" }}</td><td>{{ p.sqft or "-" }}</td>
+      <td>{{ p.purchase_date or "-" }}</td><td class="r">{{ p.cost_basis | money }}</td></tr>
+    {% else %}<tr><td colspan="8" class="muted">No properties yet.</td></tr>{% endfor %}</tbody>
   </table>
+  <p class="small muted">To set or change these facts, tell the <a href="/">chat</a>, for example "the house has 3 beds, 2.5 baths and 1,950 sq ft".
+    Rent research and the tax protest need the type and size. The tax report estimates depreciation from the purchase date and the cost basis (the building, without the land).</p>
 </section>
 <section class="card">
   <h2>Lease terms</h2>
