@@ -38,8 +38,6 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
     },
 }
 
-SYSTEM_PROMPT = prompts.get("email-extraction")  # see prompts/agent-prompts.md
-
 
 def _format_properties(properties: list[Property]) -> str:
     if not properties:
@@ -65,7 +63,7 @@ async def extract(
 ) -> dict[str, Any]:
     options = ClaudeAgentOptions(
         model=model,
-        system_prompt=SYSTEM_PROMPT.format(properties=_format_properties(properties))
+        system_prompt=prompts.get("email-extraction").format(properties=_format_properties(properties))
         + memory.prompt_section(),
         tools=[],                # no built-in tools at all
         allowed_tools=[],

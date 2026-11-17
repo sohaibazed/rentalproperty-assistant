@@ -127,3 +127,17 @@ def test_memory_page_saves(client, tmp_path):
     page = client.post("/memory", data={"text": "# Memory\n- Rule one\n"}, headers=ORIGIN).text
     assert "Memory saved" in page and "Rule one" in page
     assert "1 rule" in client.get("/").text
+
+
+def test_prompts_page_saves_and_refuses_bad_edits(client, tmp_path, monkeypatch):
+    f = tmp_path / "agent-prompts.md"
+    f.write_text("## a\n\n````text\nHello {name}.\n````\n")
+    monkeypatch.setenv("RENTAL_PROMPTS_FILE", str(f))
+    assert "Hello {name}." in client.get("/prompts").text
+    page = client.post("/prompts", data={"text": "## a\n\n````text\nHi {name}!\n````\n"},
+                       headers=ORIGIN).text
+    assert "Prompts saved" in page and "Hi {name}!" in f.read_text()
+    page = client.post("/prompts", data={"text": "## a\n\n````text\nHi there\n````\n"},
+                       headers=ORIGIN).text
+    assert "Not saved:" in page and "Hi there" in page      # the edit stays on screen
+    assert "Hi {name}!" in f.read_text()

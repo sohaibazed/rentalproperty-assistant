@@ -34,11 +34,7 @@ DRY_RUN_NOTE = "> **Dry run:** this recommendation is not saved."
 
 RENT_RATIO_LIMITS = (Decimal("0.4"), Decimal("2.5"))  # vs current rent
 
-# Prompts live in prompts/agent-prompts.md.
-
-COMPS_RESEARCHER_PROMPT = prompts.get("comps-researcher")
-
-MAIN_PROMPT = prompts.get("rent-recommendation")
+# Prompts live in prompts/agent-prompts.md; read at each run so web edits apply.
 
 OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -132,11 +128,11 @@ class Research:
 def agent_options(settings: Settings) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         model=settings.model,
-        system_prompt=MAIN_PROMPT + memory.prompt_section(),
+        system_prompt=prompts.get("rent-recommendation") + memory.prompt_section(),
         agents={
             "comps-researcher": AgentDefinition(
                 description=prompts.get("comps-researcher-description").strip(),
-                prompt=COMPS_RESEARCHER_PROMPT + memory.prompt_section(),
+                prompt=prompts.get("comps-researcher") + memory.prompt_section(),
                 tools=["WebSearch", "WebFetch"],
                 model="inherit",
                 maxTurns=25,

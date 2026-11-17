@@ -1,4 +1,5 @@
-"""Chat home page: conversations, attachments, live replies, confirm cards, memory page."""
+"""Chat home page: conversations, attachments, live replies, confirm cards, memory and
+prompts pages."""
 
 import asyncio
 import json
@@ -12,7 +13,7 @@ import psycopg
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
-from rental_agent import chat, db, doc_import, memory, runner, statement_import
+from rental_agent import chat, db, doc_import, memory, prompts, runner, statement_import
 from rental_agent.config import artifacts_dir, load_settings
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
 from rental_agent.web.jobs import JobManager
@@ -300,3 +301,19 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
         memory.write(text)
         flash(request, "Memory saved. New chats and job runs will use it.")
         return RedirectResponse("/memory", status_code=303)
+
+    @app.get("/prompts", response_class=HTMLResponse)
+    async def prompts_page(request: Request):
+        return page(request, "prompts.html", text=prompts.read(),
+                    names=list(prompts.parse(prompts.read())))
+
+    @app.post("/prompts")
+    async def save_prompts(request: Request, text: str = Form("")):
+        try:
+            prompts.write(text)
+        except ValueError as e:
+            # Keep the owner's edits on screen so nothing typed is lost.
+            return page(request, "prompts.html", text=text, error=str(e),
+                        names=list(prompts.parse(prompts.read())))
+        flash(request, "Prompts saved. New chats and job runs will use them.")
+        return RedirectResponse("/prompts", status_code=303)
