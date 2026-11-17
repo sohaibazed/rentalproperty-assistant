@@ -122,6 +122,16 @@ def test_downloads_fall_back_to_reference(client, env):
     (tmp_path / "reference" / "same.txt").write_text("reference")
     assert client.get("/files/leases/orig.pdf").text == "original"   # an original lease
     assert client.get("/files/same.txt").text == "artifact"          # artifacts/ wins
+
+
+def test_pdfs_open_in_the_browser_other_files_download(client, env):
+    tmp_path, _ = env
+    (tmp_path / "artifacts" / "lease.pdf").write_bytes(b"%PDF-1.4")
+    (tmp_path / "artifacts" / "report.xlsx").write_bytes(b"x")
+    pdf = client.get("/files/lease.pdf").headers
+    assert pdf["content-disposition"].startswith("inline")
+    assert pdf["content-security-policy"] == "frame-ancestors 'none'"   # lets the viewer run
+    assert client.get("/files/report.xlsx").headers["content-disposition"].startswith("attachment")
     assert client.get("/files/../secret.txt").status_code == 404
 
 

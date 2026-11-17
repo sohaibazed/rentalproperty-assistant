@@ -38,6 +38,7 @@ from rental_agent.web.secrets import GMAIL_TOKEN, SECRETS, SecretStore
 HERE = Path(__file__).parent
 PUBLIC_PATHS = {"/login", "/static/style.css"}
 OAUTH_TTL_SECONDS = 600
+INLINE_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 
 def create_app(store: SecretStore | None = None, manager: JobManager | None = None,
@@ -81,10 +82,11 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         if path not in PUBLIC_PATHS and not request.session.get("auth"):
             return RedirectResponse("/login", status_code=303)
         response = await call_next(request)
-        response.headers["Content-Security-Policy"] = (
+        # A file shown in the browser's viewer sets its own policy (see download()).
+        response.headers.setdefault("Content-Security-Policy", (
             "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; "
             "img-src 'self'; form-action 'self' "
-            "https://accounts.google.com; frame-ancestors 'none'; base-uri 'none'")
+            "https://accounts.google.com; frame-ancestors 'none'; base-uri 'none'"))
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
         return response
@@ -295,7 +297,14 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
 
     @app.get("/files/{path:path}")
     async def download(path: str):
-        return FileResponse(_artifact(path), filename=Path(path).name)
+        file = _artifact(path)
+        # PDFs and images open in the browser's viewer; anything else downloads. The pages'
+        # default-src 'none' policy would stop Chrome's PDF viewer, so these files only forbid
+        # being embedded in other sites.
+        if file.suffix.lower() in INLINE_SUFFIXES:
+            return FileResponse(file, filename=file.name, content_disposition_type="inline",
+                                headers={"Content-Security-Policy": "frame-ancestors 'none'"})
+        return FileResponse(file, filename=file.name)
 
     # --- Settings -----------------------------------------------------------------------------
 
