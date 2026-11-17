@@ -63,7 +63,7 @@ def fakes(monkeypatch, tmp_path):
     monkeypatch.setattr(gmail, "get_message", lambda _s, mid: MESSAGES[mid])
     monkeypatch.setattr(gmail, "get_attachment_bytes", lambda _s, _m, _a: b"%PDF-fake")
 
-    async def fake_extract(msg, _props, _model, _env):
+    async def fake_extract(msg, _props, _model, _env, _db_url):
         return dict(EXTRACTIONS[msg.message_id])
 
     monkeypatch.setattr(email_sync, "extract", fake_extract)

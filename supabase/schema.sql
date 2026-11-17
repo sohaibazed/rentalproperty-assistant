@@ -152,6 +152,17 @@ create table if not exists job_runs (
   log          text
 );
 
+-- What each Claude call cost, as reported by the Agent SDK (list-price estimate, not the
+-- invoice). The dashboard sums the current month.
+create table if not exists claude_usage (
+  id        bigint generated always as identity primary key,
+  used_at   timestamptz not null default now(),
+  source    text not null,                -- 'chat', 'email-extraction', 'rent-research'
+  model     text not null,
+  cost_usd  numeric(12,6) not null
+);
+create index if not exists claude_usage_used_at on claude_usage (used_at);
+
 -- Chat history. Proposals are actions the assistant suggested (save an expense, run a job,
 -- import a document, add a memory rule); they only take effect when the owner clicks to confirm.
 create table if not exists chats (
@@ -198,7 +209,7 @@ grant usage on schema public to rental_agent;
 grant usage on type schedule_e_category to rental_agent;
 grant select, insert on
   llcs, properties, tenants, leases, lease_tenants, rent_payments, expenses, rent_research,
-  email_ingest_log, sync_runs, job_runs, chats, chat_messages, reference_documents
+  email_ingest_log, sync_runs, job_runs, chats, chat_messages, reference_documents, claude_usage
   to rental_agent;
 grant update on
   llcs, properties, leases, rent_payments, expenses, rent_research, sync_runs, job_runs, chats,
@@ -213,7 +224,7 @@ begin
   foreach t in array array[
     'llcs', 'properties', 'tenants', 'leases', 'lease_tenants', 'rent_payments', 'expenses',
     'rent_research', 'email_ingest_log', 'sync_runs', 'job_runs', 'chats', 'chat_messages',
-    'reference_documents'
+    'reference_documents', 'claude_usage'
   ] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists rental_agent_all on %I', t);

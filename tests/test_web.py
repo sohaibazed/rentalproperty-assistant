@@ -155,3 +155,21 @@ def test_next_sync_date():
     assert next_sync_date(date(2026, 11, 16)) == date(2026, 11, 21)
     assert next_sync_date(date(2026, 11, 21)) == date(2026, 11, 21)
     assert next_sync_date(date(2026, 12, 25)) == date(2027, 1, 1)
+
+
+def test_dashboard_shows_month_claude_cost(client, monkeypatch):
+    from contextlib import nullcontext
+    from decimal import Decimal
+
+    from rental_agent import db
+    monkeypatch.setenv("RENTAL_DB_URL", "postgresql://unused")
+    monkeypatch.setenv("RENTAL_CLAUDE_MONTHLY_BUDGET", "20")
+    monkeypatch.setattr(db, "connect", lambda _url: nullcontext())
+    monkeypatch.setattr(db, "year_totals", lambda _c, _y: {"rent": 0, "expenses": 0, "needs_review": 0})
+    monkeypatch.setattr(db, "job_runs", lambda _c, limit: [])
+    monkeypatch.setattr(db, "month_claude_cost",
+                        lambda _c, _d: {"cost": Decimal("3.456789"), "calls": 12})
+    r = client.get("/dashboard")
+    assert "Claude cost, " + date.today().strftime("%B") in r.text
+    assert "$3.46" in r.text and "12 calls this month" in r.text
+    assert 'max="20"' in r.text and "$3.46 of $20.00 budget" in r.text

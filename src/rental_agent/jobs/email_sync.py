@@ -73,7 +73,7 @@ async def run(settings: Settings, *, since: date | None, dry_run: bool) -> SyncR
         for message_id in todo:
             try:
                 msg = gmail.get_message(service, message_id)
-                raw = await extract(msg, properties, settings.model, settings.claude_env)
+                raw = await extract(msg, properties, settings.model, settings.claude_env, settings.db_url)
                 cand = validate(
                     raw,
                     email_date=msg.sent_at.date(),

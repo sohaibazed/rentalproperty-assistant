@@ -1,11 +1,14 @@
 """Postgres access for the least-privilege rental_agent role."""
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
 import psycopg
 import psycopg.rows
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -526,3 +529,24 @@ def chat_message(conn: psycopg.Connection, chat_id: int, msg_id: int) -> dict | 
 def set_message_proposals(conn: psycopg.Connection, msg_id: int, proposals_json: str) -> None:
     conn.execute("update chat_messages set proposals = %s::jsonb where id = %s",
                  (proposals_json, msg_id))
+
+
+def record_claude_cost(db_url: str, source: str, model: str, cost_usd: float | None) -> None:
+    """Log one Claude call's cost. Best effort: a logging failure never fails the caller."""
+    if cost_usd is None:
+        return
+    try:
+        with connect(db_url) as conn:
+            conn.execute("insert into claude_usage (source, model, cost_usd) values (%s, %s, %s)",
+                         (source, model, cost_usd))
+    except psycopg.Error as exc:
+        log.warning("Could not record Claude cost: %s", exc)
+
+
+def month_claude_cost(conn: psycopg.Connection, today: date) -> dict:
+    """Cost and call count for the calendar month containing `today`."""
+    return _dicts(conn, """select coalesce(sum(cost_usd), 0) as cost, count(*) as calls
+                           from claude_usage
+                           where used_at >= date_trunc('month', %s::date)
+                             and used_at < date_trunc('month', %s::date) + interval '1 month'""",
+                  (today, today))[0]

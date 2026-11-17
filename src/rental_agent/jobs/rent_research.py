@@ -157,6 +157,9 @@ async def ask_agents(facts: Facts, settings: Settings) -> dict[str, Any]:
     async for message in query(prompt=facts.as_text(), options=agent_options(settings)):
         if isinstance(message, ResultMessage):
             result = message
+    if result:
+        db.record_claude_cost(settings.db_url, "rent-research", settings.model,
+                              result.total_cost_usd)
     if result is None or result.is_error or result.structured_output is None:
         detail = result.subtype if result else "no result"
         raise RuntimeError(f"Rent research failed: {detail}")

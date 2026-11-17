@@ -8,7 +8,7 @@ from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
-from rental_agent import memory, prompts
+from rental_agent import db, memory, prompts
 from rental_agent.db import Property
 from rental_agent.gmail import EmailMessage
 
@@ -59,7 +59,7 @@ def _format_email(msg: EmailMessage) -> str:
 
 
 async def extract(
-    msg: EmailMessage, properties: list[Property], model: str, env: dict[str, str]
+    msg: EmailMessage, properties: list[Property], model: str, env: dict[str, str], db_url: str
 ) -> dict[str, Any]:
     options = ClaudeAgentOptions(
         model=model,
@@ -78,6 +78,8 @@ async def extract(
     async for message in query(prompt=_format_email(msg), options=options):
         if isinstance(message, ResultMessage):
             result = message
+    if result:
+        db.record_claude_cost(db_url, "email-extraction", model, result.total_cost_usd)
     if result is None or result.is_error or result.structured_output is None:
         detail = result.subtype if result else "no result"
         raise RuntimeError(f"Extraction failed for message {msg.message_id}: {detail}")

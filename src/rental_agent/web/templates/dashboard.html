@@ -18,6 +18,19 @@
     <div><span class="num">{{ totals.needs_review }}</span><span class="muted">items to review</span></div>
   </section>
   {% endif %}
+  {% if claude_cost %}
+  <section class="card stats">
+    <h2>Claude cost, {{ today.strftime("%B") }}</h2>
+    <div><span class="num">{{ claude_cost.cost | money }}</span>
+      <span class="muted">{{ claude_cost.calls }} call{{ '' if claude_cost.calls == 1 else 's' }} this month</span></div>
+    {% if claude_budget %}
+    <meter class="cost-meter" min="0" max="{{ claude_budget }}" high="{{ claude_budget * 4 / 5 }}"
+           optimum="0" value="{{ [claude_cost.cost, claude_budget] | min }}"></meter>
+    <span class="muted">{{ claude_cost.cost | money }} of {{ claude_budget | money }} budget</span>
+    {% endif %}
+    <p class="muted">Estimated by the Agent SDK at list prices; your Anthropic invoice is the final number.</p>
+  </section>
+  {% endif %}
 </div>
 <section class="card">
   <h2>Recent runs</h2>

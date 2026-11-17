@@ -415,6 +415,8 @@ async def run_turn(
                 live = ""
             elif isinstance(msg, ResultMessage):
                 result = msg
+        if result:
+            db.record_claude_cost(settings.db_url, "chat", model, result.total_cost_usd)
         if result is None or result.is_error:
             detail = (result.errors or [result.subtype]) if result else ["no result"]
             return TurnResult("\n\n".join(parts), proposals, getattr(result, "session_id", None),

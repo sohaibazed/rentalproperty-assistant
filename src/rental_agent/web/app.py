@@ -17,6 +17,7 @@ import re
 import secrets as pysecrets
 import time
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -154,12 +155,14 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         ]
         year = date.today().year
         conn, db_error = connect()
-        totals, runs = None, []
+        totals, runs, claude_cost = None, [], None
         if conn:
             with conn:
                 totals, runs = db.year_totals(conn, year), db.job_runs(conn, limit=8)
+                claude_cost = db.month_claude_cost(conn, date.today())
         return page(request, "dashboard.html", checklist=checklist, db_error=db_error,
-                    totals=totals, runs=runs, year=year,
+                    totals=totals, runs=runs, year=year, claude_cost=claude_cost,
+                    claude_budget=_claude_budget(), today=date.today(),
                     next_sync=next_sync_date(date.today()))
 
     # --- Jobs and runs --------------------------------------------------------------------------
@@ -387,6 +390,16 @@ def render_markdown(text: str) -> str:
         return 'href="#"'
 
     return _HREF.sub(link, out)
+
+
+def _claude_budget() -> Decimal | None:
+    """Optional monthly Claude budget in USD (RENTAL_CLAUDE_MONTHLY_BUDGET) for the cost meter."""
+    raw = os.environ.get("RENTAL_CLAUDE_MONTHLY_BUDGET", "").strip()
+    try:
+        budget = Decimal(raw) if raw else None
+    except InvalidOperation:
+        return None
+    return budget if budget and budget > 0 else None
 
 
 def _same_origin(request: Request) -> bool:
