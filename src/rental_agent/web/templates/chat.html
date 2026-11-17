@@ -32,6 +32,8 @@
             <h1>How can I help with the rental?</h1>
             <p class="muted">Attach a receipt to add an expense, ask about Texas or Plano rental rules,
               look up rent and expenses, or start a job.</p>
+            {% if attention_count %}<p><a href="/dashboard">{{ attention_count }} item{{ "" if attention_count == 1 else "s" }}
+              need{{ "s" if attention_count == 1 else "" }} your attention</a></p>{% endif %}
           </div>
         {% endif %}
         {% for m in messages %}

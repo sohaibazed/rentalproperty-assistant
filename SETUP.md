@@ -6,6 +6,9 @@ A private web app that helps run a small rental-property LLC:
   statements to record rent and expenses, import new leases and LLC documents, ask about your
   leases or local rental rules, and start jobs. Every change waits for you to click a confirm
   card.
+- **Dashboard**: a **Needs attention** list at the top: rent that is missing or short in
+  the last three months, the lease renewal deadline, rows waiting for review, and a failed
+  email sync. The chat home page shows how many items there are.
 - **Review**: rent payments and expenses the email sync or a statement import wasn't sure
   about. Fix a row, confirm it, or remove it, here or by telling the chat what is wrong.
   Rent and Expenses have an **Edit** link on every row. A removed row is left out of totals
@@ -269,6 +272,7 @@ property in Plano, Texas. Check them before relying on the output:
 | Default | Where | Change it if |
 |---|---|---|
 | Renewal notice: 45 days before the lease ends | `NOTICE_DAYS` in [`src/rental_agent/jobs/lease.py`](src/rental_agent/jobs/lease.py) | Your lease's notice clause says otherwise |
+| Rent counts as missing from the 12th of its month; the renewal reminder starts 45 days before the notice date | `RENT_CHECK_DAY` and `RENEWAL_LEAD_DAYS` in [`src/rental_agent/attention.py`](src/rental_agent/attention.py) | Rent isn't due on the 1st, or you want the reminders earlier or later |
 | Lease extension form | [`templates/lease_extension_template.pdf`](templates/lease_extension_template.pdf); where each value is printed: `FIELDS` in [`src/rental_agent/jobs/lease.py`](src/rental_agent/jobs/lease.py) | You're outside Texas or want different wording (have a lawyer review it) |
 | Time zone `America/Chicago` (scheduler's "today") | `TZ` in [`docker-compose.yml`](docker-compose.yml) | You're in another time zone |
 | Taxes on Schedule E (single-member LLC) | `tax-report` job | Your LLC files a partnership return (Form 1065); ask your CPA |

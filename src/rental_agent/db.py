@@ -454,6 +454,13 @@ def year_totals(conn: psycopg.Connection, year: int) -> dict:
 _TABLES = {"rent": "rent_payments", "expense": "expenses"}
 
 
+def review_count(conn: psycopg.Connection) -> int:
+    return conn.execute(
+        """select (select count(*) from rent_payments where needs_review and removed_at is null)
+                + (select count(*) from expenses where needs_review and removed_at is null)"""
+    ).fetchone()[0]
+
+
 def rent_payments_to_review(conn: psycopg.Connection) -> list[dict]:
     return _dicts(conn, _RENT_ROWS + " where r.needs_review and r.removed_at is null "
                                      "order by r.paid_on")

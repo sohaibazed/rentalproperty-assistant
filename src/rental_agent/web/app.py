@@ -29,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from rental_agent import db, gmail, runner
+from rental_agent import attention, db, gmail, runner
 from rental_agent.config import artifacts_dir, env_or_file, reference_dir
 from rental_agent.jobs import rent_research
 from rental_agent.web import chat_views, review_views
@@ -162,12 +162,14 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         ]
         year = date.today().year
         conn, db_error = connect()
-        totals, runs, claude_cost = None, [], None
+        totals, runs, claude_cost, needs_attention = None, [], None, None
         if conn:
             with conn:
                 totals, runs = db.year_totals(conn, year), db.job_runs(conn, limit=8)
                 claude_cost = db.month_claude_cost(conn, date.today())
+                needs_attention = attention.items(conn, date.today())
         return page(request, "dashboard.html", checklist=checklist, db_error=db_error,
+                    needs_attention=needs_attention, rent_check_day=attention.RENT_CHECK_DAY,
                     totals=totals, runs=runs, year=year, claude_cost=claude_cost,
                     claude_budget=_claude_budget(), today=date.today(),
                     next_sync=next_sync_date(date.today()))

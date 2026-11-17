@@ -14,6 +14,7 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
 from rental_agent import (
+    attention,
     chat,
     corrections,
     db,
@@ -114,12 +115,14 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
 
     def chat_page(request: Request, chat_id: int | None, search: str | None) -> HTMLResponse:
         conn, db_error = connect()
-        current, messages, chat_list, properties = None, [], [], []
+        current, messages, chat_list, properties, attention_count = None, [], [], [], 0
         if conn:
             with conn:
                 chat_list = sidebar(conn, search)
                 properties = db.properties_list(conn)
-                if chat_id is not None:
+                if chat_id is None:      # the home page only, to keep open chats fast
+                    attention_count = len(attention.items(conn, datetime.now().date()))
+                else:
                     current = db.chat(conn, chat_id)
                     if not current:
                         raise HTTPException(404)
@@ -132,6 +135,7 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
                     model=(current or {}).get("model") or chat.DEFAULT_MODEL,
                     live=chats.busy(chat_id) if chat_id else False, properties=properties,
                     categories=SCHEDULE_E_CATEGORIES, memory_rules=memory_rules,
+                    attention_count=attention_count,
                     accept=",".join(sorted(chat.UPLOAD_TYPES)))
 
     @app.get("/", response_class=HTMLResponse)

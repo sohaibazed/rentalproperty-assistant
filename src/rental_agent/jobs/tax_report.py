@@ -112,7 +112,12 @@ def build_report(
                           f"{len(unallocated)} LLC-wide expense(s) not assigned to a property; "
                           "split them across properties with your CPA"))
 
-    flags += _rent_gaps(year, leases, rents, labels, today)
+    for gap in rent_gaps(year, leases, rents, today):
+        where = labels.get(gap.property_id, f"property {gap.property_id}")
+        flags.append(Flag("missing rent" if gap.paid == 0 else "short rent", gap.month, gap.paid,
+                          where,
+                          f"{gap.month:%b %Y}: recorded ${gap.paid:,.2f} of ${gap.due:,.2f} "
+                          "(late payment or not yet synced?)"))
 
     if not any(cat == "depreciation" for _, cat in expense_totals):
         flags.append(Flag("note", None, None, "-",
@@ -128,20 +133,28 @@ def build_report(
                   list(rents), list(expenses))
 
 
-def _rent_gaps(
+@dataclass(frozen=True)
+class RentGap:
+    property_id: int
+    month: date          # first day of the month
+    paid: Decimal
+    due: Decimal
+
+
+def rent_gaps(
     year: int,
     leases: list[db.LeaseRow],
     rents: list[db.RentRow],
-    labels: dict[int, str],
     today: date,
-) -> list[Flag]:
-    """Flag fully-ended months where an active lease has no or short rent recorded."""
+) -> list[RentGap]:
+    """Months of `year` that ended before `today` where an active lease has no or short rent
+    recorded. A payment counts toward the calendar month it was paid in."""
     paid: dict[tuple[int, int], Decimal] = defaultdict(Decimal)
     for r in rents:
         if r.lease_id is not None:
             paid[(r.lease_id, r.paid_on.month)] += r.amount
 
-    flags = []
+    gaps = []
     for lease in leases:
         for month in range(1, 13):
             first = date(year, month, 1)
@@ -151,12 +164,8 @@ def _rent_gaps(
             got = paid[(lease.id, month)]
             if got >= lease.monthly_rent:
                 continue
-            where = labels.get(lease.property_id, f"property {lease.property_id}")
-            kind = "missing rent" if got == 0 else "short rent"
-            flags.append(Flag(kind, first, got, where,
-                              f"{first:%b %Y}: recorded ${got:,.2f} of ${lease.monthly_rent:,.2f} "
-                              "(late payment or not yet synced?)"))
-    return flags
+            gaps.append(RentGap(lease.property_id, first, got, lease.monthly_rent))
+    return gaps
 
 
 def write_xlsx(report: Report, path: Path) -> None:

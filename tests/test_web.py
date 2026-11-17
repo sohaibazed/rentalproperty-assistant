@@ -161,9 +161,10 @@ def test_dashboard_shows_month_claude_cost(client, monkeypatch):
     from contextlib import nullcontext
     from decimal import Decimal
 
-    from rental_agent import db
+    from rental_agent import attention, db
     monkeypatch.setenv("RENTAL_DB_URL", "postgresql://unused")
     monkeypatch.setenv("RENTAL_CLAUDE_MONTHLY_BUDGET", "20")
+    monkeypatch.setattr(attention, "items", lambda _c, _today: [])
     monkeypatch.setattr(db, "connect", lambda _url: nullcontext())
     monkeypatch.setattr(db, "year_totals", lambda _c, _y: {"rent": 0, "expenses": 0, "needs_review": 0})
     monkeypatch.setattr(db, "job_runs", lambda _c, limit: [])

@@ -2,6 +2,20 @@
 {% block content %}
 <h1>Dashboard</h1>
 {% include "_db_error.html" %}
+{% if needs_attention is not none %}
+<section class="card attention">
+  <h2>Needs attention</h2>
+  {% if needs_attention %}
+  <ul>
+    {% for item in needs_attention %}<li class="{{ item.level }}">{{ item.text }} <a href="{{ item.link }}">{{ item.link_text }}</a></li>{% endfor %}
+  </ul>
+  {% else %}
+  <p>Nothing needs your attention.</p>
+  {% endif %}
+  <p class="muted small">Checked each time this page loads: rent for the last three months (a month counts from
+    the {{ rent_check_day }}th, after the mid-month email sync), lease renewal dates, rows to review and the last email sync.</p>
+</section>
+{% endif %}
 <div class="grid">
   <section class="card">
     <h2>Setup</h2>
