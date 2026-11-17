@@ -8,9 +8,9 @@ Tools:
 - the import-document skill (agent-plugin/skills/) and propose_document_import, for a new
   lease or LLC document; the import-statement skill and propose_statement_import, for rent and
   expenses in a bank or card statement;
-- propose_expense / propose_job / propose_memory / propose_document_import, which only record
-  a *proposal*. The web app
-  shows each as a card; nothing is saved, run or remembered until the owner clicks.
+- propose_expense / propose_job / propose_memory / propose_document_import /
+  propose_correction, which only record a *proposal*. The web app shows each as a card;
+  nothing is saved, changed, run or remembered until the owner clicks.
 Attachments are sent to the model as content blocks; the agent has no file or shell tools.
 """
 
@@ -37,7 +37,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from rental_agent import db, doc_import, memory, prompts, runner, statement_import
+from rental_agent import corrections, db, doc_import, memory, prompts, runner, statement_import
 from rental_agent.config import Settings, data_dir
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
 
@@ -153,12 +153,14 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
                 by_cat[e["category"]] = by_cat.get(e["category"], Decimal(0)) + e["amount"]
         return _rows({**totals, "expenses_by_category": by_cat})
 
-    @tool("list_rent_payments", "Rent payments recorded in a year.", year_schema)
+    @tool("list_rent_payments", "Rent payments recorded in a year, with the id "
+          "propose_correction needs.", year_schema)
     async def list_rent_payments(args):
         with connect() as conn:
             return _rows(db.rent_payments_for_year(conn, args["year"]))
 
-    @tool("list_expenses", "Expenses recorded in a year.", year_schema)
+    @tool("list_expenses", "Expenses recorded in a year, with the id propose_correction "
+          "needs.", year_schema)
     async def list_expenses(args):
         with connect() as conn:
             return _rows(db.expenses_list(conn, args["year"]))
@@ -304,6 +306,31 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
                 + "; ".join(f"{r['date']} ${r['amount']} ({r['existing']})" for r in already)})
         return result
 
+    @tool("propose_correction", "Show the owner a card to fix or remove one recorded rent "
+          "payment or expense, by its id from list_rent_payments or list_expenses. For an "
+          "update, `changes` holds only the fields to change (rent: "
+          + ", ".join(corrections.FIELDS["rent"]) + "; expense: "
+          + ", ".join(corrections.FIELDS["expense"]) + "); leave it empty to mark a flagged "
+          "row as checked. A removed row is left out of totals and can be restored. Does not "
+          "change anything.", {
+              "type": "object",
+              "properties": {
+                  "kind": {"type": "string", "enum": list(corrections.KINDS)},
+                  "id": {"type": "integer"},
+                  "action": {"type": "string", "enum": ["update", "remove"]},
+                  "changes": {"type": "object"},
+                  "reason": {"type": "string",
+                             "description": "one short sentence, shown on the card"},
+              },
+              "required": ["kind", "id", "action", "changes", "reason"]})
+    async def propose_correction(args):
+        with connect() as conn:
+            try:
+                card = corrections.propose(conn, args, date.today())
+            except ValueError as exc:
+                return _err(f"Not proposed: {exc}")
+        return propose("correction", card)
+
     @tool("propose_memory", "Show the owner a card to add one standing rule to memory.md.",
           {"type": "object", "properties": {"rule": {"type": "string"}}, "required": ["rule"]})
     async def propose_memory(args):
@@ -315,7 +342,7 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
     return [year_summary, list_rent_payments, list_expenses, list_leases, list_rent_research,
             list_properties, list_job_runs, list_reference_documents, read_reference_document,
             propose_expense, propose_job, propose_document_import, propose_statement_import,
-            propose_memory]
+            propose_correction, propose_memory]
 
 
 def build_tools(settings: Settings, proposals: list[dict[str, Any]], attachments: set[str]):

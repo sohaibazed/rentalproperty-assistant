@@ -13,7 +13,16 @@ import psycopg
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
-from rental_agent import chat, db, doc_import, memory, prompts, runner, statement_import
+from rental_agent import (
+    chat,
+    corrections,
+    db,
+    doc_import,
+    memory,
+    prompts,
+    runner,
+    statement_import,
+)
 from rental_agent.config import artifacts_dir, load_settings
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
 from rental_agent.web.jobs import JobManager
@@ -256,6 +265,9 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
                                       f"{counts['expense']} expense(s)"
                                       + (f"; {counts['skipped']} were already recorded."
                                          if counts["skipped"] else "."))
+                elif prop["kind"] == "correction":
+                    prop["result"] = corrections.apply(conn, prop["data"], datetime.now().date())
+                    prop["status"] = "done"
                 elif prop["kind"] == "job":
                     options = {k: ("on" if v is True else "" if v in (None, False) else str(v))
                                for k, v in prop["data"]["options"].items()}

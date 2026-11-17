@@ -15,7 +15,7 @@
     <h2>{{ year }} so far</h2>
     <div><span class="num">{{ totals.rent | money }}</span><span class="muted">rent collected</span></div>
     <div><span class="num">{{ totals.expenses | money }}</span><span class="muted">expenses</span></div>
-    <div><span class="num">{{ totals.needs_review }}</span><span class="muted">items to review</span></div>
+    <div><a class="num" href="/review">{{ totals.needs_review }}</a><span class="muted">items to review</span></div>
   </section>
   {% endif %}
   {% if claude_cost %}

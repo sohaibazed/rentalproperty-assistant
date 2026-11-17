@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Review · Rental Agent{% endblock %}
+{% block content %}
+<h1>Review</h1>
+{% include "_db_error.html" %}
+<p class="muted">Rows the email sync or a statement import wasn't sure about. Fix each one, confirm it, or remove it.
+  The tax report lists anything still here. The sync's reason for a flag is in that run's summary, under Runs.</p>
+<section class="card">
+  <h2>Rent payments</h2>
+  <table>
+    <thead><tr><th>Date</th><th class="r">Amount</th><th>Payer</th><th>Property</th><th>Why</th><th></th></tr></thead>
+    <tbody>{% for r in rent %}<tr>
+      <td>{{ r.paid_on }}</td><td class="r">{{ r.amount | money }}</td><td>{{ r.payer or "-" }}</td>
+      <td>{{ r.address or "unmatched" }}</td>
+      <td>{{ "Flagged by the email sync" if r.property_id else "Not matched to a lease" }}</td>
+      <td><form method="post" action="/rent/{{ r.id }}" class="inline">
+        <input type="hidden" name="back" value="review">
+        <a href="/rent/{{ r.id }}?back=review">Edit</a>
+        {% if r.property_id %}<button name="action" value="checked" class="link">Looks right</button>{% endif %}
+      </form></td>
+    </tr>{% else %}<tr><td colspan="6" class="muted">No rent payments to review.</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+<section class="card">
+  <h2>Expenses</h2>
+  <table>
+    <thead><tr><th>Date</th><th class="r">Amount</th><th>Category</th><th>Vendor</th><th>Property</th><th>Receipt</th><th></th></tr></thead>
+    <tbody>{% for r in expenses %}<tr>
+      <td>{{ r.spent_on }}</td><td class="r">{{ r.amount | money }}</td><td>{{ r.category.replace("_", " ") }}</td>
+      <td>{{ r.vendor or "-" }}</td><td>{{ r.address or "LLC-wide" }}</td>
+      <td>{% if r.receipt_path %}<a href="/files/{{ r.receipt_path }}">view</a>{% endif %}</td>
+      <td><form method="post" action="/expenses/{{ r.id }}" class="inline">
+        <input type="hidden" name="back" value="review">
+        <a href="/expenses/{{ r.id }}?back=review">Edit</a>
+        <button name="action" value="checked" class="link">Looks right</button>
+      </form></td>
+    </tr>{% else %}<tr><td colspan="7" class="muted">No expenses to review.</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+{% endblock %}

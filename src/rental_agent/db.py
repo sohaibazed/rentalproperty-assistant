@@ -162,7 +162,7 @@ def rent_for_year(conn: psycopg.Connection, year: int) -> list[RentRow]:
     rows = conn.execute(
         """select r.id, l.property_id, r.lease_id, r.amount, r.paid_on, r.payer, r.needs_review
            from rent_payments r left join leases l on l.id = r.lease_id
-           where extract(year from r.paid_on) = %s
+           where extract(year from r.paid_on) = %s and r.removed_at is null
            order by r.paid_on, r.id""",
         (year,),
     ).fetchall()
@@ -174,7 +174,7 @@ def expenses_for_year(conn: psycopg.Connection, year: int) -> list[ExpenseRow]:
         """select id, property_id, amount, spent_on, vendor, description,
                   schedule_e_category::text, receipt_path, needs_review
            from expenses
-           where extract(year from spent_on) = %s
+           where extract(year from spent_on) = %s and removed_at is null
            order by spent_on, id""",
         (year,),
     ).fetchall()
@@ -413,30 +413,98 @@ def last_job_run(conn: psycopg.Connection, job: str, trigger: str) -> dict | Non
     return rows[0] if rows else None
 
 
-def rent_payments_for_year(conn: psycopg.Connection, year: int) -> list[dict]:
-    return _dicts(conn, """select r.paid_on, r.amount, r.payer, r.needs_review, p.address
-                           from rent_payments r left join leases l on l.id = r.lease_id
-                           left join properties p on p.id = l.property_id
-                           where extract(year from r.paid_on) = %s order by r.paid_on desc""",
-                  (year,))
+_RENT_ROWS = """select r.id, r.paid_on, r.amount, r.payer, r.needs_review, r.removed_at,
+                       l.property_id, p.address
+                from rent_payments r left join leases l on l.id = r.lease_id
+                left join properties p on p.id = l.property_id"""
+_EXPENSE_ROWS = """select e.id, e.spent_on, e.amount, e.schedule_e_category::text as category,
+                          e.vendor, e.description, e.receipt_path, e.needs_review, e.removed_at,
+                          e.property_id, p.address
+                   from expenses e left join properties p on p.id = e.property_id"""
 
 
-def expenses_list(conn: psycopg.Connection, year: int) -> list[dict]:
-    return _dicts(conn, """select e.spent_on, e.amount, e.schedule_e_category::text as category,
-                                  e.vendor, e.description, e.receipt_path, e.needs_review,
-                                  p.address
-                           from expenses e left join properties p on p.id = e.property_id
-                           where extract(year from e.spent_on) = %s order by e.spent_on desc""",
-                  (year,))
+def rent_payments_for_year(conn: psycopg.Connection, year: int, *,
+                           include_removed: bool = False) -> list[dict]:
+    return _dicts(conn, _RENT_ROWS + """ where extract(year from r.paid_on) = %s
+                                         and (%s or r.removed_at is null)
+                                         order by r.paid_on desc""", (year, include_removed))
+
+
+def expenses_list(conn: psycopg.Connection, year: int, *,
+                  include_removed: bool = False) -> list[dict]:
+    return _dicts(conn, _EXPENSE_ROWS + """ where extract(year from e.spent_on) = %s
+                                            and (%s or e.removed_at is null)
+                                            order by e.spent_on desc""", (year, include_removed))
 
 
 def year_totals(conn: psycopg.Connection, year: int) -> dict:
     row = _dicts(conn, """select
-        (select coalesce(sum(amount), 0) from rent_payments where extract(year from paid_on) = %s) as rent,
-        (select coalesce(sum(amount), 0) from expenses where extract(year from spent_on) = %s) as expenses,
-        (select count(*) from rent_payments where needs_review) +
-        (select count(*) from expenses where needs_review) as needs_review""", (year, year))
+        (select coalesce(sum(amount), 0) from rent_payments
+         where extract(year from paid_on) = %s and removed_at is null) as rent,
+        (select coalesce(sum(amount), 0) from expenses
+         where extract(year from spent_on) = %s and removed_at is null) as expenses,
+        (select count(*) from rent_payments where needs_review and removed_at is null) +
+        (select count(*) from expenses where needs_review and removed_at is null)
+          as needs_review""", (year, year))
     return row[0]
+
+
+# --- Review: fix, remove or restore one recorded row ----------------------------------------
+
+_TABLES = {"rent": "rent_payments", "expense": "expenses"}
+
+
+def rent_payments_to_review(conn: psycopg.Connection) -> list[dict]:
+    return _dicts(conn, _RENT_ROWS + " where r.needs_review and r.removed_at is null "
+                                     "order by r.paid_on")
+
+
+def expenses_to_review(conn: psycopg.Connection) -> list[dict]:
+    return _dicts(conn, _EXPENSE_ROWS + " where e.needs_review and e.removed_at is null "
+                                        "order by e.spent_on")
+
+
+def rent_payment(conn: psycopg.Connection, row_id: int) -> dict | None:
+    rows = _dicts(conn, _RENT_ROWS + " where r.id = %s", (row_id,))
+    return rows[0] if rows else None
+
+
+def expense(conn: psycopg.Connection, row_id: int) -> dict | None:
+    rows = _dicts(conn, _EXPENSE_ROWS + " where e.id = %s", (row_id,))
+    return rows[0] if rows else None
+
+
+def update_rent_payment(conn: psycopg.Connection, row_id: int, *, lease_id: int | None,
+                        amount: Decimal, paid_on: date, payer: str | None,
+                        needs_review: bool) -> bool:
+    """Returns False if the row doesn't exist or was removed."""
+    cur = conn.execute(
+        """update rent_payments set lease_id = %s, amount = %s, paid_on = %s, payer = %s,
+                  needs_review = %s
+           where id = %s and removed_at is null""",
+        (lease_id, amount, paid_on, payer, needs_review, row_id))
+    return cur.rowcount == 1
+
+
+def update_expense(conn: psycopg.Connection, row_id: int, *, property_id: int | None,
+                   amount: Decimal, spent_on: date, vendor: str | None,
+                   description: str | None, category: str) -> bool:
+    """Also clears the review flag. Returns False if the row doesn't exist or was removed."""
+    cur = conn.execute(
+        """update expenses set property_id = %s, amount = %s, spent_on = %s, vendor = %s,
+                  description = %s, schedule_e_category = %s, needs_review = false
+           where id = %s and removed_at is null""",
+        (property_id, amount, spent_on, vendor, description, category, row_id))
+    return cur.rowcount == 1
+
+
+def set_removed(conn: psycopg.Connection, kind: str, row_id: int, removed: bool) -> bool:
+    """Remove or restore a row. Returns False if it was already in that state (or missing)."""
+    cur = conn.execute(
+        f"""update {_TABLES[kind]} set removed_at = case when %s then now() end
+            where id = %s and (removed_at is not null) <> %s""",
+        (removed, row_id, removed))
+    return cur.rowcount == 1
 
 
 def rent_research_list(conn: psycopg.Connection) -> list[dict]:

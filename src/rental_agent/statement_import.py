@@ -106,24 +106,29 @@ def validate(rows: list[dict[str, Any]], property_ids: set[int], today: date) ->
 
 
 def mark_existing(conn: psycopg.Connection, rows: list[dict]) -> list[dict]:
-    """Untick rows that are already recorded: imported before, or (same amount, within a few
-    days) recorded by the email sync or by hand. Sets row["existing"] to the reason."""
+    """Untick rows that are already recorded: imported before (even if the owner removed the
+    row since), or (same amount, within a few days) recorded by the email sync or by hand.
+    Sets row["existing"] to the reason."""
     for row in rows:
         table, date_col = (("rent_payments", "paid_on") if row["kind"] == "rent"
                            else ("expenses", "spent_on"))
         hit = conn.execute(
-            f"""select {date_col}, coalesce(source_message_id = %s, false) as same
+            f"""select {date_col}, coalesce(source_message_id = %s, false) as same,
+                       removed_at is not null
                 from {table}
                 where source_message_id = %s
-                   or (amount = %s and {date_col} between %s::date - %s and %s::date + %s)
+                   or (removed_at is null and amount = %s
+                       and {date_col} between %s::date - %s and %s::date + %s)
                 order by same desc limit 1""",
             (row["id"], row["id"], row["amount"], row["date"], MATCH_DAYS, row["date"],
              MATCH_DAYS),
         ).fetchone()
         row["existing"] = None
         if hit:
-            on, same = hit
-            row["existing"] = ("already imported" if same
+            on, same, removed = hit
+            page = "Rent" if row["kind"] == "rent" else "Expenses"
+            row["existing"] = (f"removed earlier; restore it on the {page} page" if removed
+                               else "already imported" if same
                                else f"same amount already recorded on {on:%b %-d}")
             row["include"] = False
     return rows
