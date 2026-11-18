@@ -140,8 +140,8 @@ IPv6, which Docker on a Mac usually can't reach.
 - **Pausing:** free Supabase projects pause after about a week without activity. The app pings
   the database once a day while it's running, so keep it running (Docker Desktop open), or
   open the Supabase dashboard now and then. A paused project can be restored from the dashboard.
-- **Backups:** Supabase backs up paid projects automatically. On the free plan, export now and
-  then (**Database → Backups**, or `pg_dump`), especially before tax season.
+- **Backups:** Supabase backs up paid projects only. The app makes its own backup once a day;
+  see [Backup and restore](#backup-and-restore).
 - **Asking Claude about your data:** the same project works with the Supabase connector in
   Claude chat or Duet, if you want to ask questions there too.
 
@@ -311,6 +311,47 @@ Restart with `make up` after changing code, templates or prompts.
 | Encryption key, login email and password | macOS Keychain |
 
 `memory/`, `artifacts/`, `reference/` and `data/` are excluded from git and from the Docker image.
+
+### Backup and restore
+
+Once a day, while the app is running, the scheduler writes
+`artifacts/backups/rental-backup-YYYY-MM-DD.zip`. Run one now with `make backup` or from the
+Jobs page. Each zip is a full copy and restores by itself:
+
+| In the zip | What |
+|---|---|
+| `db/<table>.csv` | Every database table, all read at the same moment |
+| `artifacts/` | Reports, leases, receipts and chat uploads |
+| `memory/` | `memory.md` |
+| `manifest.json` | Row counts and checksums, checked after each backup and before a restore |
+
+- **Kept:** the newest 30 backups, and the first backup of each of the last 12 months.
+- **Alerts:** the Dashboard shows a failed backup, or no backup for more than 3 days.
+- **Not in the zip:** `reference/` and `config/` (your own files), the Docker volume and the
+  Keychain items. After a loss, enter the keys again on the Settings page.
+- **Not encrypted:** the zip holds tenant, LLC and lease details in plain text, like the rest
+  of `artifacts/`. The backups sit on the same disk as the app, so keep that folder in your
+  Mac's own backup (Time Machine or iCloud).
+
+To restore, for example into a new Supabase project:
+
+1. Run [`supabase/schema.sql`](supabase/schema.sql) in the new project (section 3.2) and set
+   the `rental_agent` password (section 3.3). Every table must be empty.
+2. Start the app (`make up`) and put the zip in `artifacts/backups/`.
+3. Copy the **Session pooler** connection string for the `postgres` user (section 3.4, without
+   changing the user). The restore needs the owner's login because the app's role can't reset
+   ID counters. It is used for this one run and is not stored.
+4. Run the restore. `read -s` keeps the connection string out of your shell history:
+
+   ```bash
+   read -r -s RESTORE_DB_URL && export RESTORE_DB_URL
+   make restore-backup FILE=artifacts/backups/rental-backup-YYYY-MM-DD.zip
+   unset RESTORE_DB_URL
+   ```
+
+The tables load in one transaction: if anything fails, the database stays empty. Files that
+are already on disk with other content are kept and listed; add `OVERWRITE=1` to replace
+them. To get back a single file, open the zip in Finder instead.
 
 ## 9. Troubleshooting
 

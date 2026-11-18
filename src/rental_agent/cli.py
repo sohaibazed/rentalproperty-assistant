@@ -4,13 +4,18 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
+import zipfile
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from rental_agent import db, doc_import, gmail, runner
+import psycopg
+
+from rental_agent import backup, db, doc_import, gmail, memory, runner
 from rental_agent.config import (
+    artifacts_dir,
     env_or_file,
     gmail_client_secrets_path,
     gmail_token_path,
@@ -50,6 +55,12 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("--apply", action="store_true",
                      help="save; without it, only preview what would change")
 
+    res = sub.add_parser("restore-backup",
+                         help="load a backup zip into an empty database and put its files back")
+    res.add_argument("file", type=Path, help="a zip from artifacts/backups/")
+    res.add_argument("--overwrite", action="store_true",
+                     help="replace files on disk that differ from the backup")
+
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -57,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
         gmail.authorize_interactive(gmail_client_secrets_path(), gmail_token_path())
         print(f"Saved Gmail token to {gmail_token_path()}")
         return 0
+
+    if args.command == "restore-backup":
+        return _restore_backup(args.file, args.overwrite)
 
     # Inside the container, the database URL and keys live in the web app's encrypted store.
     secrets = None
@@ -100,6 +114,31 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     return 2
+
+
+def _restore_backup(file: Path, overwrite: bool) -> int:
+    # The owner's login, given for this one run and never stored: the app's own role can't
+    # reset ID counters, and a restore may be the first thing done on a new database.
+    db_url = os.environ.get("RESTORE_DB_URL")
+    if not db_url:
+        print("Set RESTORE_DB_URL to the database owner's connection string.", file=sys.stderr)
+        return 1
+    if not file.is_file():
+        print(f"No such file: {file}", file=sys.stderr)
+        return 1
+    try:
+        r = backup.restore(file, db_url, artifacts_dir(), memory.path().parent, overwrite)
+    except (RuntimeError, psycopg.Error, zipfile.BadZipFile, KeyError) as exc:
+        print(f"Not restored: {exc}", file=sys.stderr)
+        return 1
+    print(f"Restored {r.tables} tables ({r.rows:,} rows).")
+    print(f"Files: {r.written} written, {r.unchanged} already there.")
+    if r.different:
+        print(f"{len(r.different)} file(s) on disk differ from the backup and were kept "
+              "(run again with --overwrite to replace them):")
+        for name in r.different:
+            print(f"- {name}")
+    return 0
 
 
 def _import_document(db_url: str, file: Path, data_path: Path, apply: bool) -> int:

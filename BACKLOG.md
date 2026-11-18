@@ -11,15 +11,13 @@ When a feature ships, delete its entry.
 2. **Cost per job run.** The monthly cost card exists, but cost is logged by source (chat, email
    extraction, research) in `claude_usage` and is not tied to a row in `job_runs`. Jobs default to
    Opus 5.5 (`RENTAL_AGENT_MODEL`).
-3. **Scheduled backup.** The scheduler writes a database dump to `artifacts/`. Today the export is
-   manual on the free Supabase plan.
-4. **Push alerts.** The Needs attention list shows only inside the app. Send the same items by
+3. **Push alerts.** The Needs attention list shows only inside the app. Send the same items by
    email or webhook. Gmail access is read-only by design, so this needs a separate channel.
-5. **Phone access with Tailscale.** Blocked on the owner: install Tailscale on the Mac and the
+4. **Phone access with Tailscale.** Blocked on the owner: install Tailscale on the Mac and the
    phone, sign in to both, and enable HTTPS certificates. Then run `tailscale serve` for port 8080,
    check sign-in, chat, attachments and confirm buttons through the new address (the Origin check
    on POSTs may need a fix), check the chat at phone width, and document it in `SETUP.md`.
-6. **Tax-protest extras.** Left out when the `tax-protest` job was built:
+5. **Tax-protest extras.** Left out when the `tax-protest` job was built:
    - a dashboard reminder during notice season (about April 15 to the protest deadline)
    - a PDF evidence packet (needs a new dependency; today the report is printed to PDF by hand)
 

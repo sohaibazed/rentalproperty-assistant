@@ -1,5 +1,6 @@
 """Runs jobs in the background (one at a time), records them in job_runs, and schedules
-the email sync, a daily database ping, and the rent research that opens each lease renewal."""
+the email sync, a daily database ping, a daily backup, and the rent research that opens each
+lease renewal."""
 
 import asyncio
 import json
@@ -94,7 +95,8 @@ def _relative(path: Path, base: Path) -> str:
 
 
 async def scheduler(manager: JobManager, interval_seconds: int = 3600) -> None:
-    """Hourly: ping the database once a day; run sync-email on the 1st, 11th and 21st; start
+    """Hourly: ping the database and back up once a day; run sync-email on the 1st, 11th and
+    21st; start
     rent research once when a lease renewal opens."""
     if os.environ.get("RENTAL_SCHEDULER", "on") == "off":
         return
@@ -118,6 +120,15 @@ async def _tick(manager: JobManager, pinged: date | None) -> None:
         if pinged != today:
             db.ping(conn)
         last = db.last_job_run(conn, "sync-email", "schedule")
+        last_backup = db.last_job_run(conn, "backup", "schedule")
+
+    # Once a day, before the sync, so there is a copy from before new rows are written. It
+    # takes seconds; on a sync day the sync starts at the next tick.
+    backed_up = last_backup is not None \
+        and last_backup["started_at"].astimezone().date() == today     # the database stores UTC
+    if not backed_up and not manager.busy:
+        await manager.start("backup", {}, trigger="schedule")
+
     already_today = last is not None and _as_date(last["started_at"]) == today
     if today.day in SYNC_DAYS and not already_today and secrets.get(GMAIL_TOKEN) \
             and not manager.busy:

@@ -4,13 +4,14 @@ Each check compares what is recorded with today's date:
 - rent that is missing or short in a recent month;
 - a lease whose yearly extension is due, overdue, or that has run out;
 - rows waiting on the Review page;
-- an email sync that failed.
+- an email sync that failed;
+- a backup that failed, or no backup for several days.
 
 Nothing here writes to the database or sends anything.
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 import psycopg
 
@@ -24,6 +25,8 @@ RENT_CHECK_DAY = 12
 # An alert is about recent months. Older gaps stay in the tax report, not on the Dashboard.
 RENT_MONTHS = 3
 # The renewal reminder ends with the step to do next (renewal.Renewal.step).
+# The scheduler backs up daily (web/jobs.py). Older than this, something has stopped.
+BACKUP_MAX_AGE_DAYS = 3
 NEXT_STEP = {
     "research": "Start with rent research.",
     "generate": "The rent research is saved. Generate the extension next.",
@@ -109,8 +112,22 @@ def sync_items(conn: psycopg.Connection) -> list[Item]:
                  "Open the run")]
 
 
+def backup_items(conn: psycopg.Connection, today: date) -> list[Item]:
+    runs = db.job_runs(conn, limit=BACKUP_MAX_AGE_DAYS + 2, job="backup")
+    if not runs:
+        return []
+    started = runs[0]["started_at"].astimezone().date()      # the database stores UTC
+    if runs[0]["status"] == "failed":
+        return [Item("now", f"The last backup failed on {long_date(started)}.",
+                     f"/runs/{runs[0]['id']}", "Open the run")]
+    if today - started > timedelta(days=BACKUP_MAX_AGE_DAYS):
+        return [Item("now", f"The newest backup is from {long_date(started)}. Backups run "
+                     "daily while the app is running.", "/jobs", "Open Jobs")]
+    return []
+
+
 def items(conn: psycopg.Connection, today: date) -> list[Item]:
     """Everything that needs attention, most urgent first."""
-    found = (sync_items(conn) + rent_items(conn, today) + renewal_items(conn, today)
+    found = (sync_items(conn) + backup_items(conn, today) + rent_items(conn, today) + renewal_items(conn, today)
              + review_items(conn))
     return sorted(found, key=lambda item: item.level != "now")

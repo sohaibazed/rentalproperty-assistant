@@ -120,8 +120,9 @@ def test_scheduler_starts_rent_research_once(open_renewal, store):
 
     def runs():
         with psycopg.connect(ADMIN) as conn:
+            # The daily backup is scheduled too; test_backup_db.py covers it.
             return conn.execute("select job, trigger, status, params from job_runs "
-                                "order by id").fetchall()
+                                "where job <> 'backup' order by id").fetchall()
 
     asyncio.run(tick())
     assert runs() == []                                  # no Claude credentials: nothing to run

@@ -4,7 +4,7 @@
 PY := uv run python -m rental_agent
 
 .PHONY: setup test lint gmail-auth sync-email sync-email-dry tax-report generate-lease research-rent \
-        tax-protest reference-sql import-document init-keys set-login-email up down logs
+        tax-protest reference-sql import-document backup restore-backup init-keys set-login-email up down logs
 
 setup:  ## Create .venv and install dependencies
 	uv sync
@@ -42,6 +42,14 @@ reference-sql:  ## Build reference/supabase-documents.sql from your lease and LL
 import-document:  ## Preview a document import; APPLY=1 saves. FILE= and DATA= under artifacts/imports/
 	@test -n "$(FILE)" -a -n "$(DATA)" || { echo "Usage: make import-document FILE=artifacts/imports/x.pdf DATA=artifacts/imports/x.json [APPLY=1]"; exit 1; }
 	docker exec rental-agent python -m rental_agent import-document "/app/$(FILE)" --data "/app/$(DATA)" $(if $(APPLY),--apply)
+
+backup:  ## Back up the database, artifacts/ and memory/ now (the scheduler does this daily)
+	docker exec rental-agent python -m rental_agent backup
+
+# RESTORE_DB_URL is read from your shell and passed by name, so it never shows in a command line.
+restore-backup:  ## Load a backup into an empty database: RESTORE_DB_URL=... make restore-backup FILE=artifacts/backups/x.zip [OVERWRITE=1]
+	@test -n "$(FILE)" -a -n "$$RESTORE_DB_URL" || { echo "Usage: RESTORE_DB_URL=<owner connection string> make restore-backup FILE=artifacts/backups/rental-backup-YYYY-MM-DD.zip [OVERWRITE=1]"; exit 1; }
+	docker exec -e RESTORE_DB_URL rental-agent python -m rental_agent restore-backup "/app/$(FILE)" $(if $(OVERWRITE),--overwrite)
 
 # --- Web UI in Docker ---------------------------------------------------------------------
 # The encryption key and UI password live in your macOS Keychain and reach the container as

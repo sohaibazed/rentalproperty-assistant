@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+from rental_agent import backup, memory
 from rental_agent.config import Settings
 from rental_agent.jobs import email_sync, lease, rent_research, tax_protest, tax_report
 
@@ -53,6 +54,7 @@ JOBS: dict[str, tuple[str, list[Param]]] = {
         Param("hearing_date", "date", "Hearing date",
               help="From the hearing notice; adds the exact evidence dates"),
     ]),
+    "backup": ("Back up the database, artifacts/ and memory/ to one zip file", []),
 }
 
 
@@ -144,5 +146,14 @@ async def run_job(job: str, params: Mapping[str, Any], settings: Settings) -> Ou
         summary += [f"Check: {f}" for f in p.flags]
         summary.append("Nothing was filed; the report lists what to file and when.")
         return Outcome(True, summary, [report])
+
+    if job == "backup":
+        b = backup.create(settings.db_url, settings.artifacts_dir, memory.path().parent,
+                          date.today())
+        summary = [(f"Saved {b.tables} tables ({b.rows:,} rows) and {b.files} files, "
+                    f"{b.path.stat().st_size / 1_000_000:.1f} MB.")]
+        if b.removed:
+            summary.append(f"Removed {len(b.removed)} older backup(s).")
+        return Outcome(True, summary, [b.path])
 
     raise ValueError(f"Unknown job: {job}")
