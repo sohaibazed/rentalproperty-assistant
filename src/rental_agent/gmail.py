@@ -78,9 +78,14 @@ def get_service(token_json: str | None) -> Any:
 
 
 def build_query(sources: EmailSources, since: date) -> str:
-    """Gmail search query covering rent senders, expense senders, and expense subject keywords."""
+    """Gmail search query covering rent senders, expense senders, expense subject keywords,
+    and the narrow rules (sender and every subject phrase together)."""
     terms = [f"from:{s}" for s in sources.rent_senders + sources.expense_senders]
     terms += [f'subject:"{k}"' for k in sources.expense_subject_keywords]
+    for rule in sources.rules:
+        senders = " OR ".join(f"from:{s}" for s in rule.senders)
+        phrases = " ".join(f'subject:"{k}"' for k in rule.subject_all)
+        terms.append(f"(({senders}) {phrases})")
     if not terms:
         raise ValueError("email_sources.toml lists no senders or keywords")
     return f"({' OR '.join(terms)}) after:{since:%Y/%m/%d}"

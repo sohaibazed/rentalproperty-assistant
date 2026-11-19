@@ -85,16 +85,34 @@ def load_settings(secrets: Mapping[str, str] | None = None) -> Settings:
 
 
 @dataclass(frozen=True)
+class EmailRule:
+    """A narrow match: from one of `senders` AND with every phrase in the subject."""
+    senders: list[str]
+    subject_all: list[str]
+
+
+@dataclass(frozen=True)
 class EmailSources:
     rent_senders: list[str]
     expense_senders: list[str]
     expense_subject_keywords: list[str]
+    rules: list[EmailRule] = field(default_factory=list)
 
 
 def load_email_sources(path: Path) -> EmailSources:
     data = tomllib.loads(path.read_text())
+    # Every other section, such as [hoa], is a narrow rule.
+    rules = []
+    for name, section in data.items():
+        if name in ("rent", "expenses"):
+            continue
+        rule = EmailRule(section.get("senders", []), section.get("subject_all", []))
+        if not rule.senders or not rule.subject_all:
+            raise ValueError(f"email_sources.toml [{name}] needs both senders and subject_all")
+        rules.append(rule)
     return EmailSources(
         rent_senders=data.get("rent", {}).get("senders", []),
         expense_senders=data.get("expenses", {}).get("senders", []),
         expense_subject_keywords=data.get("expenses", {}).get("subject_keywords", []),
+        rules=rules,
     )

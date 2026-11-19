@@ -223,6 +223,10 @@ rent-alert sender and the vendors that email you receipts. The file is read at t
 every sync, so no restart is needed. Run **sync-email** from **Jobs** with **Dry run**
 checked first, and compare the result with your bank statement.
 
+For mail that needs a tighter match, add your own section, such as `[hoa]`, with `senders`
+and `subject_all`. It matches only an email from one of those senders whose subject has
+every listed phrase.
+
 The **Dashboard** checklist should now show three green ticks: Database URL, Claude
 credentials and Gmail connected.
 

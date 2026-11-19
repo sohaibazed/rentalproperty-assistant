@@ -14,3 +14,9 @@ senders = [
 # Subject keywords that catch expense emails from senders not listed above.
 # Broad keywords pull in more mail; the model marks non-rental mail as "ignore".
 subject_keywords = ["receipt", "invoice", "property tax", "payment confirmation"]
+
+[hoa]
+# HOA statements. A section other than [rent] and [expenses] is a narrow rule: the email must
+# come from one of the senders AND have every phrase of subject_all in its subject.
+senders = ["sohaibazed@gmail.com"]
+subject_all = ["eStatement", "Willow Crest Homeowners Association"]
