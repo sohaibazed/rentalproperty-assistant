@@ -38,7 +38,7 @@ A private web app that helps run a small rental-property LLC:
   (PDF) to upload for the hearing.
 - **Memory**: `memory/memory.md` holds your standing rules for every chat and job.
 
-It runs in Docker on your Mac at <http://localhost:8080>. Data lives in Supabase (Postgres),
+It runs in Docker on your Mac at <https://localhost:8080>. Data lives in Supabase (Postgres),
 and Claude does the reading, research and extraction.
 
 ## Contents
@@ -86,10 +86,20 @@ Then build and start:
 make up
 ```
 
-Open <http://localhost:8080> and sign in. The app only listens on your Mac (`127.0.0.1`).
+Open <https://localhost:8080> and sign in. The app only listens on your Mac (`127.0.0.1`).
 Other commands: `make down` (stop), `make logs` (follow logs),
 `make set-login-email EMAIL=you@example.com` (change the sign-in email, then `make up`).
 Run `make up` again after pulling new code.
+
+**The certificate warning.** The app uses HTTPS with a self-signed certificate: the first
+`make up` creates it in `~/.config/rental-agent/tls/` (set `RENTAL_TLS_DIR` to use another
+folder). No certificate authority vouches for it, so your browser says the connection is not
+private. Continue anyway: **Advanced → Proceed to localhost** in Chrome, **Show Details →
+visit this website** in Safari. The browser asks again from time to time. The old
+`http://localhost:8080` address no longer answers, so update your bookmark.
+
+The certificate is valid for 825 days. To make a new one, delete the two files in that folder
+and run `make up`.
 
 > Don't lose the Keychain item `rental-agent-secret-key`. Without it the app can't read the
 > secrets you saved in Settings, and you'd have to enter them again.
@@ -214,8 +224,11 @@ stay in Testing, click **Reconnect Gmail** in Settings once a week.
 3. Under **Authorized redirect URIs**, add exactly:
 
    ```text
-   http://localhost:8080/oauth/gmail/callback
+   https://localhost:8080/oauth/gmail/callback
    ```
+
+   If you created the client when the app used `http://`, add this `https://` address to the
+   same client. The Settings page shows the address the app sends.
 
 4. Click **Create**, then **Download JSON**.
 
@@ -322,6 +335,7 @@ Restart with `make up` after changing code, templates or prompts.
 | `config/` (`email_sources.toml`) | Folder on your Mac |
 | Encrypted secrets, chat session files | Docker volume `rental-data` |
 | Encryption key, login email and password | macOS Keychain |
+| HTTPS certificate and its private key | `~/.config/rental-agent/tls/` on your Mac |
 
 `memory/`, `artifacts/`, `reference/` and `data/` are excluded from git and from the Docker image.
 
@@ -371,6 +385,8 @@ them. To get back a single file, open the zip in Finder instead.
 | Problem | Fix |
 |---|---|
 | `make up` says a variable isn't set | Run `make init-keys` first. |
+| The browser says the connection is not private | Expected: the certificate is self-signed (section 2). Continue to the site. |
+| `http://localhost:8080` shows an error or an empty response | The app answers only on `https://localhost:8080`. |
 | Can't sign in | `make set-login-email EMAIL=...` to fix the email. To reset the password, delete the Keychain item `rental-agent-ui-password` in Keychain Access, run `make init-keys`, then `make up`. |
 | "Can't reach the database" | Use the **Session pooler** URL with user `rental_agent.<project-ref>` (section 3.4), URL-encode special characters, and check the project isn't paused. |
 | "Tenant or user not found" | The username is missing its project ref: it must be `rental_agent.<project-ref>`, not just `rental_agent`. |

@@ -10,11 +10,13 @@ services:
       RENTAL_SECRET_KEY_FILE: /run/secrets/rental_secret_key
       RENTAL_UI_PASSWORD_FILE: /run/secrets/rental_ui_password
       RENTAL_UI_USERNAME: ${RENTAL_UI_USERNAME:?run make up}   # login email, from Keychain
-      RENTAL_PUBLIC_URL: http://localhost:8080
+      RENTAL_PUBLIC_URL: https://localhost:8080
       TZ: America/Chicago              # Plano, TX: the scheduler's "today"
     secrets:
       - rental_secret_key
       - rental_ui_password
+      - rental_tls_cert
+      - rental_tls_key
     volumes:
       - rental-data:/data              # encrypted secrets file
       - ./artifacts:/app/artifacts     # reports, leases, receipts (shared with your Mac)
@@ -37,6 +39,12 @@ secrets:
     environment: RENTAL_SECRET_KEY
   rental_ui_password:
     environment: RENTAL_UI_PASSWORD
+  # The self-signed HTTPS certificate and its private key. `make up` creates them once, in a
+  # folder outside this repo, and passes the folder here.
+  rental_tls_cert:
+    file: ${RENTAL_TLS_DIR:?run make up}/cert.pem
+  rental_tls_key:
+    file: ${RENTAL_TLS_DIR:?run make up}/key.pem
 
 volumes:
   rental-data:

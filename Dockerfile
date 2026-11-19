@@ -36,6 +36,10 @@ ENV PATH=/app/.venv/bin:$PATH \
     RENTAL_MEMORY_FILE=/app/memory/memory.md
 
 EXPOSE 8080
+# The check only asks "is the server answering", from inside the container, so it does not
+# verify the self-signed certificate.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/login')"
-CMD ["uvicorn", "rental_agent.web.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]
+  CMD python -c "import ssl, urllib.request; c = ssl.create_default_context(); c.check_hostname = False; c.verify_mode = ssl.CERT_NONE; urllib.request.urlopen('https://127.0.0.1:8080/login', context=c)"
+# HTTPS only. The certificate and its key are Docker secrets; `make up` creates them.
+CMD ["uvicorn", "rental_agent.web.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", \
+     "--ssl-certfile", "/run/secrets/rental_tls_cert", "--ssl-keyfile", "/run/secrets/rental_tls_key"]

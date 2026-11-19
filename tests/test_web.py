@@ -46,6 +46,18 @@ def test_session_cookie_survives_the_return_from_google(env):
         assert c.post("/logout", headers={"origin": "https://evil.example"}).status_code == 403
 
 
+def test_session_cookie_is_secure_when_served_over_https(env, monkeypatch):
+    def login_cookie() -> str:
+        with TestClient(create_app()) as c:
+            r = c.post("/login", data={"email": "owner@example.com", "password": "pw"},
+                       headers=ORIGIN, follow_redirects=False)
+            return r.headers["set-cookie"].lower()
+
+    assert "secure" not in login_cookie()   # plain http: a Secure cookie would never come back
+    monkeypatch.setenv("RENTAL_PUBLIC_URL", "https://localhost:8080")
+    assert "; secure" in login_cookie()
+
+
 def test_requires_login(env):
     with TestClient(create_app()) as c:
         r = c.get("/", follow_redirects=False)

@@ -4,7 +4,8 @@
 PY := uv run python -m rental_agent
 
 .PHONY: setup test lint gmail-auth sync-email sync-email-dry tax-report generate-lease research-rent \
-        tax-protest reference-sql import-document backup restore-backup init-keys set-login-email up down logs
+        tax-protest reference-sql import-document backup restore-backup init-keys set-login-email \
+        tls-cert up down logs
 
 setup:  ## Create .venv and install dependencies
 	uv sync
@@ -77,12 +78,33 @@ set-login-email:  ## Change the login email: make set-login-email EMAIL=you@exam
 	@security add-generic-password -U -a "$$USER" -s $(USER_ITEM) -w "$(EMAIL)"
 	@echo "Login email saved. Run make up to apply it."
 
-up:  ## Build and start the web UI at http://localhost:8080
+# HTTPS uses a self-signed certificate for localhost. The certificate and its private key are
+# files in a folder outside this repo (set RENTAL_TLS_DIR to move it) and reach the container
+# as Docker secrets. The key is not a login secret: it only encrypts the connection between
+# your browser and the app on this Mac.
+RENTAL_TLS_DIR ?= $(HOME)/.config/rental-agent/tls
+
+tls-cert:  ## Create the self-signed HTTPS certificate if there is none (make up runs this)
+	@if [ -f "$(RENTAL_TLS_DIR)/cert.pem" ] && [ -f "$(RENTAL_TLS_DIR)/key.pem" ]; then \
+	   echo "HTTPS certificate already in $(RENTAL_TLS_DIR)."; \
+	 else \
+	   mkdir -p "$(RENTAL_TLS_DIR)" && chmod 700 "$(RENTAL_TLS_DIR)" && umask 077 \
+	   && out="$$(openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+	        -keyout "$(RENTAL_TLS_DIR)/key.pem" -out "$(RENTAL_TLS_DIR)/cert.pem" \
+	        -subj "/CN=localhost" \
+	        -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1" \
+	        -addext "extendedKeyUsage=serverAuth" 2>&1)" \
+	   || { echo "$$out"; echo "Could not create the HTTPS certificate."; exit 1; }; \
+	   echo "Created a self-signed HTTPS certificate in $(RENTAL_TLS_DIR), valid for 825 days."; \
+	 fi
+
+up: tls-cert  ## Build and start the web UI at https://localhost:8080
 	@RENTAL_SECRET_KEY="$$(security find-generic-password -s $(KEY_ITEM) -w)" \
 	 RENTAL_UI_PASSWORD="$$(security find-generic-password -s $(PW_ITEM) -w)" \
 	 RENTAL_UI_USERNAME="$$(security find-generic-password -s $(USER_ITEM) -w)" \
+	 RENTAL_TLS_DIR="$(RENTAL_TLS_DIR)" \
 	 docker compose up -d --build
-	@echo "Open http://localhost:8080"
+	@echo "Open https://localhost:8080 (the browser warns once about the self-signed certificate)"
 
 down:  ## Stop the web UI (data and secrets are kept)
 	docker compose down

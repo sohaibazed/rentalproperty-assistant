@@ -4,7 +4,8 @@ Security: email + password login, POSTs must come from this site (Origin check),
 this app's own static files (strict CSP, no inline script), model output rendered as escaped
 Markdown with http(s)/mailto links only, secrets never rendered back, file downloads limited
 to artifacts/.
-Bind to localhost only; docker-compose publishes 127.0.0.1:8080.
+Bind to localhost only; docker-compose publishes 127.0.0.1:8080 and serves it over HTTPS
+(uvicorn's own TLS, see the Dockerfile), so RENTAL_PUBLIC_URL there starts with https.
 """
 
 import asyncio
@@ -56,7 +57,8 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         raise RuntimeError("RENTAL_UI_USERNAME and RENTAL_UI_PASSWORD must be set; "
                            "run `make init-keys`, then `make up`")
     public_url = os.environ.get("RENTAL_PUBLIC_URL", "http://localhost:8080").rstrip("/")
-    if urlparse(public_url).hostname in ("localhost", "127.0.0.1"):
+    public = urlparse(public_url)
+    if public.scheme == "http" and public.hostname in ("localhost", "127.0.0.1"):
         os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"   # Google allows http only on loopback
 
     @contextlib.asynccontextmanager
@@ -101,8 +103,9 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
     # site, and a strict cookie is left out of that request, so guard would answer with the
     # login page. Lax sends the cookie only on such top-level GETs; every POST is still
     # refused unless it comes from this site (_same_origin).
+    # Served over HTTPS, the cookie is marked Secure, so the browser never sends it over http.
     app.add_middleware(SessionMiddleware, secret_key=session_key, same_site="lax",
-                       max_age=12 * 3600)
+                       max_age=12 * 3600, https_only=public.scheme == "https")
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
     def page(request: Request, name: str, **ctx) -> HTMLResponse:
