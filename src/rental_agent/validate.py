@@ -65,6 +65,10 @@ def validate(
     if kind == "rent" and property_id is None:
         reasons.append("rent not matched to a property")
 
+    if raw.get("from_statement"):
+        # A statement says what is due, not that it was paid; the tax report counts payments.
+        reasons.append("amount is from a statement; confirm it was paid and the date")
+
     confidence = raw.get("confidence", 0)
     if not isinstance(confidence, (int, float)) or confidence < REVIEW_CONFIDENCE:
         reasons.append(f"low confidence ({confidence})")

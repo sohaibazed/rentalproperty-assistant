@@ -2,7 +2,9 @@
 
 import base64
 import html
+import io
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -14,11 +16,19 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow, InstalledAppFlow
 from googleapiclient.discovery import build
+from pypdf import PdfReader
 
 from rental_agent.config import EmailSources
 
+log = logging.getLogger(__name__)
+
 # Read-only: the agent can never send, delete, or modify mail.
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+
+# How much attachment text one email may add to what the model reads.
+PDF_MAX_FILES = 3
+PDF_MAX_PAGES = 10
+PDF_TEXT_MAX_CHARS = 15_000
 
 RECEIPT_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/heic"}
 
@@ -38,6 +48,7 @@ class EmailMessage:
     sent_at: datetime
     body: str
     attachments: list[Attachment] = field(default_factory=list)
+    pdf_text: dict[str, str] = field(default_factory=dict)   # filename -> text; see read_pdfs
 
 
 def authorize_interactive(client_secrets: Path, token_path: Path) -> None:
@@ -121,6 +132,24 @@ def get_attachment_bytes(service: Any, message_id: str, attachment_id: str) -> b
         .execute()
     )
     return base64.urlsafe_b64decode(resp["data"])
+
+
+def read_pdfs(service: Any, msg: EmailMessage) -> None:
+    """Fill msg.pdf_text with the text of the PDF attachments, for statements whose amount is
+    only in the PDF. Bounded, and a PDF that can't be read (scanned, encrypted) is skipped."""
+    left = PDF_TEXT_MAX_CHARS
+    pdfs = [a for a in msg.attachments if a.mime_type == "application/pdf"]
+    for att in pdfs[:PDF_MAX_FILES]:
+        try:
+            data = get_attachment_bytes(service, msg.message_id, att.attachment_id)
+            pages = PdfReader(io.BytesIO(data)).pages[:PDF_MAX_PAGES]
+            text = "\n".join(page.extract_text() or "" for page in pages).strip()[:left]
+        except Exception:  # noqa: BLE001 — an unreadable attachment must not fail the email
+            log.warning("message=%s could not read a PDF attachment", msg.message_id)
+            continue
+        if text:
+            msg.pdf_text[att.filename] = text
+            left -= len(text)
 
 
 def parse_message(raw: dict[str, Any]) -> EmailMessage:

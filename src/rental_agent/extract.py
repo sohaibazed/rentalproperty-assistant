@@ -23,7 +23,7 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
     "required": [
         "kind", "amount", "date", "counterparty", "description",
-        "category", "property_id", "confidence", "reason",
+        "category", "property_id", "from_statement", "confidence", "reason",
     ],
     "properties": {
         "kind": {"type": "string", "enum": ["rent", "expense", "ignore"]},
@@ -33,6 +33,9 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
         "description": {"type": ["string", "null"]},
         "category": {"type": ["string", "null"], "enum": [*SCHEDULE_E_CATEGORIES, None]},
         "property_id": {"type": ["integer", "null"]},
+        "from_statement": {"type": "boolean", "description":
+                           "true when the amount is what a statement or bill says is due, "
+                           "not a confirmation that it was paid"},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "reason": {"type": "string", "description": "one sentence"},
     },
@@ -55,6 +58,8 @@ def _format_email(msg: EmailMessage) -> str:
         f"Attachments: {attachment_names}\n\n"
         f"{msg.body}\n"
         "</email>"
+        + "".join(f'\n<attachment name="{name}">\n{text}\n</attachment>'
+                  for name, text in msg.pdf_text.items())
     )
 
 

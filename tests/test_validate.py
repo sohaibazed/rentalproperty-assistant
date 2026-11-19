@@ -28,6 +28,13 @@ def test_clean_expense_is_stored_without_review():
     assert not c.needs_review
 
 
+def test_statement_amount_always_needs_review():
+    c = _v(_raw(from_statement=True, counterparty="Willow Crest HOA", category="other"))
+    assert c.needs_review
+    assert "amount is from a statement; confirm it was paid and the date" in c.review_reasons
+    assert not _v(_raw(from_statement=False)).needs_review
+
+
 def test_ignore_passes_through():
     assert _v(_raw(kind="ignore", amount=None)).kind == "ignore"
 

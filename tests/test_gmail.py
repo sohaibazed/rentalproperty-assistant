@@ -1,5 +1,5 @@
 import base64
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -69,3 +69,43 @@ def test_parse_html_only():
     }
     assert "Total:" in parse_message(raw).body
     assert "$42.10" in parse_message(raw).body
+
+
+def _pdf(text: str) -> bytes:
+    """A one-page PDF with one line of text."""
+    import io
+
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=612, height=792)
+    font = DictionaryObject({NameObject("/Type"): NameObject("/Font"),
+                             NameObject("/Subtype"): NameObject("/Type1"),
+                             NameObject("/BaseFont"): NameObject("/Helvetica")})
+    page[NameObject("/Resources")] = DictionaryObject(
+        {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})})
+    stream = DecodedStreamObject()
+    stream.set_data(f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode())
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def test_read_pdfs_adds_pdf_text_and_skips_what_it_cannot_read(monkeypatch):
+    from rental_agent import gmail
+    from rental_agent.extract import _format_email
+    from rental_agent.gmail import Attachment, EmailMessage
+
+    files = {"a": _pdf("Amount due 250.00"), "b": b"not a pdf", "c": b"photo"}
+    monkeypatch.setattr(gmail, "get_attachment_bytes", lambda _s, _m, att_id: files[att_id])
+    msg = EmailMessage("m1", "hoa@x.com", "eStatement", datetime(2026, 11, 10, tzinfo=UTC),
+                       "Statement attached.",
+                       [Attachment("a", "eStatement.pdf", "application/pdf"),
+                        Attachment("b", "broken.pdf", "application/pdf"),
+                        Attachment("c", "photo.png", "image/png")])
+    gmail.read_pdfs(None, msg)
+    assert msg.pdf_text == {"eStatement.pdf": "Amount due 250.00"}
+    assert _format_email(msg).endswith(
+        '</email>\n<attachment name="eStatement.pdf">\nAmount due 250.00\n</attachment>')
