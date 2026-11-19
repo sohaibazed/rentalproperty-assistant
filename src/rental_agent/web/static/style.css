@@ -4,19 +4,13 @@
   --bg: #ffffff; --surface: #ffffff; --subtle: #f8fafc; --text: #0f172a; --muted: #64748b;
   --line: #e2e8f0; --accent: #2563eb; --accent-hover: #1d4ed8; --accent-text: #ffffff;
   --accent-soft: #eff6ff; --ok: #15803d; --ok-bg: #f0fdf4; --bad: #b91c1c; --bad-bg: #fef2f2;
-  --warn: #92400e; --warn-bg: #fffbeb; --shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 3px rgba(15, 23, 42, .06);
+  --warn: #92400e; --warn-bg: #fffbeb; --hover: #eef2f7; --shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 3px rgba(15, 23, 42, .06);
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
-header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; padding: 14px 24px;
-  background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 1; }
-header nav { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
-header nav a { color: var(--muted); text-decoration: none; padding: 5px 10px; border-radius: 6px; font-weight: 500; }
-header nav a:hover { color: var(--text); background: var(--subtle); }
-header nav a[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
 .brand { font-weight: 700; color: var(--text); text-decoration: none; letter-spacing: -.01em; }
-main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 56px; }
+.page { width: 100%; max-width: 1180px; margin: 0 auto; padding: 28px 24px 56px; }
 h1 { font-size: 1.6rem; margin: 0 0 20px; letter-spacing: -.02em; }
 h2 { font-size: 1rem; margin: 0 0 12px; }
 a { color: var(--accent); }
@@ -50,7 +44,6 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 button.secondary { background: #fff; color: var(--accent); border: 1px solid var(--line); }
 button.link { background: none; color: var(--accent); padding: 0; font-weight: 500; }
 button.danger { color: var(--bad); }
-header form { margin: 0; }
 .flash, .banner { padding: 10px 14px; border-radius: 8px; margin: 0 0 18px; border: 1px solid transparent; }
 .flash.ok { background: var(--ok-bg); color: var(--ok); border-color: #bbf7d0; }
 .flash.error { background: var(--bad-bg); color: var(--bad); border-color: #fecaca; }
@@ -90,32 +83,67 @@ pre { background: var(--subtle); border: 1px solid var(--line); border-radius: 8
 pre.log { max-height: 480px; overflow-y: auto; }
 code { font-size: 13px; word-break: break-all; background: var(--subtle); padding: 1px 4px; border-radius: 4px; }
 .report table { margin: 8px 0 16px; } .report h1 { font-size: 1.35rem; }
-@media (max-width: 640px) { main { padding: 18px 16px 40px; } .grid { grid-template-columns: 1fr; } header { padding: 12px 16px; } }
+@media (max-width: 640px) { .page { padding: 18px 16px 40px; } .grid { grid-template-columns: 1fr; } }
 
-/* --- Chat home -------------------------------------------------------------------------- */
+/* --- App shell: the sidebar on the left, the page on the right ------------------------------ */
 .small { font-size: 13px; }
 .ok { color: var(--ok); }
-.chat-app { display: grid; grid-template-columns: 264px 1fr; height: 100vh; }
-.chat-side { border-right: 1px solid var(--line); background: var(--subtle); padding: 14px 12px;
-  display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.side-top { display: flex; justify-content: space-between; align-items: center; padding: 2px 6px 8px; }
-.side-top form { margin: 0; }
-.new-chat { display: block; border: 1px solid var(--line); background: #fff; border-radius: 8px;
-  padding: 8px 12px; font-weight: 600; color: var(--text); text-decoration: none; }
-.new-chat:hover { border-color: #cbd5e1; }
-.side-search { margin: 0; } .side-search input { width: 100%; }
-.chat-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
-.chat-list a { color: var(--text); text-decoration: none; padding: 7px 10px; border-radius: 8px;
-  font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 1px solid transparent; }
-.chat-list a:hover { background: #fff; }
-.chat-list a[aria-current="page"] { background: #fff; border-color: var(--line); font-weight: 600; }
-.side-foot { color: var(--muted); font-size: 13px; padding: 6px; }
-.chat-main { display: flex; flex-direction: column; min-width: 0; height: 100vh;
-  max-width: none; margin: 0; padding: 0; }   /* undo the generic <main> page layout */
+.app { display: grid; grid-template-columns: 264px minmax(0, 1fr); min-height: 100vh; min-height: 100dvh; }
+.app > main { grid-column: 2; grid-row: 1; }
+.side { grid-column: 1; grid-row: 1; align-self: start; position: sticky; top: 0; height: 100vh; height: 100dvh;
+  display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; background: var(--subtle);
+  border-right: 1px solid var(--line); }
+.side form { margin: 0; }
+.side-head { display: flex; align-items: center; justify-content: space-between; padding: 0 0 6px 10px; }
+.icon { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round; }
+.side-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px;
+  padding: 0; border-radius: 8px; background: none; color: var(--muted); align-self: center; }
+.side-btn:hover { background: var(--hover); color: var(--text); }
+/* One look for every row: the buttons, the group headers, their pages and the chats. */
+.side-row, .side-sub a, .side-history a { display: flex; align-items: center; gap: 10px; width: 100%;
+  min-height: 36px; padding: 6px 10px; border-radius: 8px; color: var(--text); background: none;
+  text-decoration: none; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; }
+.side-row:hover, .side-sub a:hover, .side-history a:hover { background: var(--hover); }
+.side-row .icon { color: var(--muted); }
+.side a[aria-current="page"] { background: #fff; box-shadow: inset 0 0 0 1px var(--line); font-weight: 600; }
+.side-search { flex-direction: row; cursor: text; }
+.side-search input { flex: 1; min-width: 0; border: 0; padding: 0; background: none; font-size: 14px; }
+.side-search input:focus { outline: none; }
+.side-search:focus-within { background: #fff; box-shadow: inset 0 0 0 1px #cbd5e1; }
+.side-scroll { flex: 1; min-height: 0; overflow-y: auto; margin-top: 8px; }
+.side-group { margin-bottom: 2px; }
+.side-group summary { list-style: none; user-select: none; }
+.side-group summary::-webkit-details-marker { display: none; }
+.chev { width: 14px; height: 14px; margin-left: auto; transition: transform .15s; }
+.side-group[open] .chev { transform: rotate(90deg); }
+.side-sub { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px 28px; }
+.side-sub a, .side-history a { font-weight: 400; }
+.side-sub a { min-height: 32px; padding: 4px 10px; }
+.side-history { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+.side-history h2 { margin: 0; padding: 6px 10px 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.side-history a { display: block; line-height: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-history p { margin: 0; padding: 4px 10px; }
+.side-note { margin: 0; padding: 6px 10px; color: var(--muted); font-size: 13px; }
+.topbar, .backdrop { display: none; }
+/* Desktop, collapsed: a rail of icons. sidebar.js sets .rail on <html> and remembers it. */
+@media (min-width: 761px) {
+  .rail .app { grid-template-columns: 57px minmax(0, 1fr); }
+  .rail .side .label, .rail .side .chev, .rail .side-sub, .rail .side-history { display: none; }
+  .rail .side-head { padding-left: 0; justify-content: center; }
+  .rail .side-row { justify-content: center; padding: 6px 0; }
+  .rail .side-group.current > summary { background: #fff; box-shadow: inset 0 0 0 1px var(--line); }
+}
+
+/* --- Chat ------------------------------------------------------------------------------------ */
+.chat-main { display: flex; flex-direction: column; min-width: 0; height: 100vh; height: 100dvh; }
 .thread { flex: 1; overflow-y: auto; padding: 28px 0 8px; }
-.inner { max-width: 780px; margin: 0 auto; padding: 0 24px; }
-.empty { text-align: center; margin: 14vh auto 0; max-width: 520px; }
-.empty h1 { font-size: 1.6rem; margin-bottom: 8px; }
+.inner { width: 100%; max-width: 780px; margin: 0 auto; padding: 0 24px; }
+/* A new chat: the heading and the prompt bar sit together in the middle of the page. */
+.chat-main.empty { justify-content: center; padding-bottom: 10vh; }
+.chat-main.empty .thread { flex: none; overflow: visible; padding: 0; }
+.hero { text-align: center; font-size: 1.75rem; margin: 0 0 24px; }
+.attention-link { text-align: center; font-size: 14px; margin: 14px 0 0; }
 .msg { margin: 0 0 22px; }
 .msg.user { display: flex; justify-content: flex-end; }
 .bubble { background: var(--subtle); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px;
@@ -135,30 +163,60 @@ code { font-size: 13px; word-break: break-all; background: var(--subtle); paddin
 .grid-form .wide { grid-column: 1 / -1; }
 .edit { max-width: 620px; }
 .row { display: flex; flex-direction: row; gap: 8px; margin: 8px 0 0; }
-.composer { border-top: 1px solid var(--line); background: #fff; padding: 14px 0 16px; }
-.box { border: 1px solid #cbd5e1; border-radius: 14px; padding: 10px 12px; margin: 0; gap: 4px;
-  box-shadow: var(--shadow); }
+/* The prompt bar: attach, message, model, send, in one rounded row. */
+.composer { padding: 8px 0 18px; }
+.box { flex-flow: row wrap; align-items: flex-end; gap: 6px; margin: 0; padding: 8px 8px 8px 10px;
+  border: 1px solid #cbd5e1; border-radius: 26px; background: #fff; box-shadow: var(--shadow); }
 .box:focus-within { border-color: var(--accent); }
-.box textarea { border: 0; padding: 4px 2px; resize: none; font: inherit; font-size: 15px; background: transparent; }
+.box textarea { flex: 1; min-width: 0; border: 0; padding: 7px 4px; resize: none; font: inherit; font-size: 15px;
+  line-height: 22px; background: transparent; }
 .box textarea:focus { outline: none; }
+.file-names { flex-basis: 100%; padding: 2px 2px 4px; }
 .file-names:empty { display: none; }
-.tools { display: flex; align-items: center; gap: 8px; }
-.icon-btn { border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font-size: 13.5px;
-  font-weight: 500; color: var(--text); cursor: pointer; background: #fff; }
-.icon-btn:hover { background: var(--subtle); }
-.tools select { padding: 4px 8px; font-size: 13.5px; }
-.send { margin-left: auto; width: 36px; height: 36px; border-radius: 50%; padding: 0; font-size: 17px;
-  display: inline-flex; align-items: center; justify-content: center; align-self: center; }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
-.actions a { border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px; font-size: 13px;
-  color: var(--text); text-decoration: none; background: #fff; }
-.actions a:hover { background: var(--subtle); border-color: #cbd5e1; }
+.attach { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px;
+  border-radius: 50%; font-size: 20px; font-weight: 400; color: var(--muted); cursor: pointer; }
+.attach:hover { background: var(--subtle); color: var(--text); }
+.box select { height: 36px; border: 0; padding: 0 4px; background: transparent; color: var(--muted);
+  font-size: 13.5px; cursor: pointer; }
+.send { width: 36px; height: 36px; border-radius: 50%; padding: 0; font-size: 17px;
+  display: inline-flex; align-items: center; justify-content: center; align-self: flex-end; }
+
+/* --- Phones: the sidebar is a drawer over the page; the top bar's menu button opens it. ------ */
 @media (max-width: 760px) {
-  .chat-app { grid-template-columns: 1fr; }
-  .chat-side { display: none; }
-  .inner { padding: 0 16px; }
+  .app { display: block; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0;
+    z-index: 2; height: 52px; padding: 0 4px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  /* Without JavaScript nothing can open a drawer, so the sidebar sits above the page. */
+  .side { position: static; align-self: stretch; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  html:not(.js) :is(#menu-open, #side-toggle) { visibility: hidden; }
+  .js .side { position: fixed; inset: 0 auto 0 0; z-index: 4; width: min(300px, 86vw); border-bottom: 0;
+    box-shadow: 0 0 40px rgba(15, 23, 42, .25); visibility: hidden; transform: translateX(-100%);
+    transition: transform .2s ease, visibility .2s; }
+  .js.drawer .side { visibility: visible; transform: none; }
+  .js.drawer .backdrop { display: block; position: fixed; inset: 0; z-index: 3; background: rgba(15, 23, 42, .4); }
+  .js.drawer body { overflow: hidden; }
+  /* Rows and buttons big enough for a thumb. */
+  .side-row, .side-history a { min-height: 44px; font-size: 15px; }
+  .side-sub a { min-height: 40px; font-size: 15px; }
+  .side-history a { line-height: 32px; }
+  .side-btn, .send, .attach { width: 44px; height: 44px; }
+  /* Text under 16px makes iOS zoom the page when a field gets focus. */
+  input, select, textarea, .box textarea, .box select, .side-search input { font-size: 16px; }
+  .chat-main { height: calc(100vh - 52px); height: calc(100dvh - 52px); }
+  /* On a phone the prompt bar stays at the bottom, in reach of a thumb, also for a new chat. */
+  .chat-main.empty { justify-content: flex-start; padding-bottom: 0; }
+  .chat-main.empty .thread { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .hero { font-size: 1.4rem; margin: 0; }
+  .inner { padding: 0 12px; }
+  .thread { padding-top: 16px; }
+  .composer { padding: 6px 0 10px; }
+  .box { padding: 6px; border-radius: 22px; }
+  .box textarea { flex-basis: 100%; order: -1; padding: 8px 8px 4px; }
+  .send { margin-left: auto; }
+  .bubble { max-width: 90%; }
   .grid-form { grid-template-columns: 1fr; }
 }
+@media (prefers-reduced-motion: reduce) { .side, .chev { transition: none; } }
 
 /* Login */
 .login h1 { margin-bottom: 4px; }

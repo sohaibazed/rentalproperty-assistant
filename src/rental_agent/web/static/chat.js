@@ -1,4 +1,4 @@
-// Chat page helpers: Enter to send, show attached file names, stream the live reply.
+// Chat page helpers: Enter to send (with a mouse), show attached file names, stream the live reply.
 // The page works without this file (it falls back to a 3-second refresh).
 "use strict";
 
@@ -13,9 +13,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const files = form.querySelector('input[type="file"]');
     const names = document.getElementById("file-names");
     const send = form.querySelector(".send");
+    // A phone has no Shift+Enter worth using: there Enter makes a new line and the button sends.
+    const mouse = window.matchMedia("(pointer: fine)").matches;
 
     textarea.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      if (mouse && e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         if (textarea.value.trim() || files.files.length) form.requestSubmit();
       }
@@ -34,7 +36,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
     form.addEventListener("submit", () => { send.disabled = true; send.textContent = "…"; });
-    if (!textarea.disabled) textarea.focus();
+    if (mouse && !textarea.disabled) textarea.focus();   // on a phone, focus opens the keyboard
   }
 
   const live = document.getElementById("live");

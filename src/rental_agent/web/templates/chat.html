@@ -2,86 +2,54 @@
 {% block title %}{{ chat.title if chat else "Chat" }} · Rental Agent{% endblock %}
 {% block head %}<script src="/static/chat.js" defer></script>
 {% if live %}<noscript><meta http-equiv="refresh" content="3"></noscript>{% endif %}{% endblock %}
-{% block body %}
-<div class="chat-app">
-  <aside class="chat-side">
-    <div class="side-top">
-      <a class="brand" href="/">Rental Agent</a>
-      <form method="post" action="/logout"><button class="link" title="Signed in as {{ request.session.get('user', '') }}">Sign out</button></form>
-    </div>
-    <a class="new-chat" href="/">＋ New chat</a>
-    <form method="get" action="{{ '/c/%d' % chat.id if chat else '/' }}" class="side-search">
-      <input name="q" value="{{ search }}" placeholder="Search chats…" aria-label="Search chats">
-    </form>
-    <nav class="chat-list" aria-label="Chats">
-      {% for c in chats %}
-        <a href="/c/{{ c.id }}{% if search %}?q={{ search | urlencode }}{% endif %}"
-           {% if chat and c.id == chat.id %}aria-current="page"{% endif %}>{{ c.title }}</a>
-      {% else %}<p class="muted small">{{ "No matches." if search else "No chats yet." }}</p>{% endfor %}
-    </nav>
-    <div class="side-foot">Memory: {{ memory_rules }} rule{{ "" if memory_rules == 1 else "s" }} · <a href="/memory">edit</a></div>
-  </aside>
-
-  <main class="chat-main">
-    <div class="thread" id="thread">
-      <div class="inner">
-        {% if flash %}<p class="flash {{ flash.kind }}">{{ flash.message }}</p>{% endif %}
-        {% if db_error %}<p class="flash error">{{ db_error }} <a href="/settings">Open Settings</a></p>{% endif %}
-        {% if not messages and not live %}
-          <div class="empty">
-            <h1>How can I help with the rental?</h1>
-            <p class="muted">Attach a receipt to add an expense, ask about Texas or Plano rental rules,
-              look up rent and expenses, or start a job.</p>
-            {% if attention_count %}<p><a href="/dashboard">{{ attention_count }} item{{ "" if attention_count == 1 else "s" }}
-              need{{ "s" if attention_count == 1 else "" }} your attention</a></p>{% endif %}
+{% block main %}
+{# A new chat has no thread yet: the prompt bar sits in the middle of the page. #}
+{% set empty = not messages and not live %}
+<main class="chat-main{% if empty %} empty{% endif %}">
+  <div class="thread" id="thread">
+    <div class="inner">
+      {% if flash %}<p class="flash {{ flash.kind }}">{{ flash.message }}</p>{% endif %}
+      {% if db_error %}<p class="flash error">{{ db_error }} <a href="/settings">Open Settings</a></p>{% endif %}
+      {% if empty %}<h1 class="hero">How can I help with the rental?</h1>{% endif %}
+      {% for m in messages %}
+        {% if m.role == "user" %}
+          <div class="msg user" id="m{{ m.id }}"><div class="bubble">
+            {% for a in m.attachments or [] %}<a class="att" href="/files/{{ a }}">📎 {{ a.split("/")[-1] }}</a>{% endfor %}
+            {% if m.content %}<div class="user-text">{{ m.content }}</div>{% endif %}
+          </div></div>
+        {% else %}
+          <div class="msg bot" id="m{{ m.id }}">
+            <div class="who">Rental Agent · {{ models.get(m.model, m.model) }}</div>
+            <div class="md">{{ m.html | safe }}</div>
+            {% for p in m.proposals %}{% include "_proposal.html" %}{% endfor %}
           </div>
         {% endif %}
-        {% for m in messages %}
-          {% if m.role == "user" %}
-            <div class="msg user" id="m{{ m.id }}"><div class="bubble">
-              {% for a in m.attachments or [] %}<a class="att" href="/files/{{ a }}">📎 {{ a.split("/")[-1] }}</a>{% endfor %}
-              {% if m.content %}<div class="user-text">{{ m.content }}</div>{% endif %}
-            </div></div>
-          {% else %}
-            <div class="msg bot" id="m{{ m.id }}">
-              <div class="who">Rental Agent · {{ models.get(m.model, m.model) }}</div>
-              <div class="md">{{ m.html | safe }}</div>
-              {% for p in m.proposals %}{% include "_proposal.html" %}{% endfor %}
-            </div>
-          {% endif %}
-        {% endfor %}
-        {% if live %}
-          <div class="msg bot" id="live" data-events="/c/{{ chat.id }}/events">
-            <div class="who">Rental Agent · <span id="live-status">Thinking</span>…</div>
-            <div class="md live-text" id="live-text"></div>
-          </div>
-        {% endif %}
-      </div>
+      {% endfor %}
+      {% if live %}
+        <div class="msg bot" id="live" data-events="/c/{{ chat.id }}/events">
+          <div class="who">Rental Agent · <span id="live-status">Thinking</span>…</div>
+          <div class="md live-text" id="live-text"></div>
+        </div>
+      {% endif %}
     </div>
+  </div>
 
-    <div class="composer">
-      <div class="inner">
-        <form method="post" action="/chat/send" enctype="multipart/form-data" class="box" id="composer">
-          {% if chat %}<input type="hidden" name="chat_id" value="{{ chat.id }}">{% endif %}
-          <textarea name="message" rows="2" placeholder="Ask anything, or attach a receipt…"
-                    aria-label="Message" {% if live %}disabled{% endif %}></textarea>
-          <div class="file-names" id="file-names"></div>
-          <div class="tools">
-            <label class="icon-btn">📎 Attach<input type="file" name="files" multiple accept="{{ accept }}" hidden></label>
-            <select name="model" aria-label="Model">
-              {% for id, label in models.items() %}<option value="{{ id }}" {% if id == model %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-            <button type="submit" class="send" aria-label="Send" {% if live %}disabled{% endif %}>↑</button>
-          </div>
-        </form>
-        <nav class="actions" aria-label="More">
-          <a href="/dashboard">Dashboard</a><a href="/review">Review</a><a href="/jobs">Jobs</a>
-          <a href="/rent">Rent</a><a href="/expenses">Expenses</a><a href="/research">Rent research</a>
-          <a href="/leases">Leases</a><a href="/property-tax">Property tax</a><a href="/memory">Memory</a>
-          <a href="/settings">Settings</a>
-        </nav>
-      </div>
+  <div class="composer">
+    <div class="inner">
+      <form method="post" action="/chat/send" enctype="multipart/form-data" class="box" id="composer">
+        {% if chat %}<input type="hidden" name="chat_id" value="{{ chat.id }}">{% endif %}
+        <div class="file-names" id="file-names"></div>
+        <label class="attach" title="Attach files" aria-label="Attach files">＋<input type="file" name="files" multiple accept="{{ accept }}" hidden></label>
+        <textarea name="message" rows="1" placeholder="Ask anything, or attach a receipt…"
+                  aria-label="Message" {% if live %}disabled{% endif %}></textarea>
+        <select name="model" aria-label="Model">
+          {% for id, label in models.items() %}<option value="{{ id }}" {% if id == model %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="send" aria-label="Send" {% if live %}disabled{% endif %}>↑</button>
+      </form>
+      {% if empty and attention_count %}<p class="attention-link"><a href="/dashboard">{{ attention_count }} item{{ "" if attention_count == 1 else "s" }}
+        need{{ "s" if attention_count == 1 else "" }} your attention</a></p>{% endif %}
     </div>
-  </main>
-</div>
+  </div>
+</main>
 {% endblock %}

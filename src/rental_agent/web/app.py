@@ -107,8 +107,22 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
 
     def page(request: Request, name: str, **ctx) -> HTMLResponse:
         flash = request.session.pop("flash", None)
+        if "chats" not in ctx and request.session.get("auth"):
+            ctx["chats"] = sidebar_chats()
         return templates.TemplateResponse(request, name, {"flash": flash, "busy": manager.busy,
                                                           "nav": name, **ctx})
+
+    def sidebar_chats() -> list[dict]:
+        """The chat history every page shows in its sidebar. Empty when the database can't be
+        read: the page still has to render, and Settings is where the owner fixes that."""
+        conn, _ = connect()
+        if not conn:
+            return []
+        try:
+            with conn:
+                return db.chats_list(conn)
+        except psycopg.Error:
+            return []
 
     def flash(request: Request, message: str, kind: str = "ok") -> None:
         request.session["flash"] = {"message": message, "kind": kind}

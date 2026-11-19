@@ -185,9 +185,55 @@ def test_dashboard_shows_month_claude_cost(client, monkeypatch):
     monkeypatch.setattr(db, "connect", lambda _url: nullcontext())
     monkeypatch.setattr(db, "year_totals", lambda _c, _y: {"rent": 0, "expenses": 0, "needs_review": 0})
     monkeypatch.setattr(db, "job_runs", lambda _c, limit: [])
+    monkeypatch.setattr(db, "chats_list", lambda _c: [])
     monkeypatch.setattr(db, "month_claude_cost",
                         lambda _c, _d: {"cost": Decimal("3.456789"), "calls": 12})
     r = client.get("/dashboard")
     assert "Claude cost, " + date.today().strftime("%B") in r.text
     assert "$3.46" in r.text and "12 calls this month" in r.text
     assert 'max="20"' in r.text and "$3.46 of $20.00 budget" in r.text
+
+
+def test_every_page_has_the_sidebar_with_the_current_group_open(client):
+    page = " ".join(client.get("/rent").text.split())
+    assert 'id="side"' in page and page.count("<details") == 4
+    opened = '<details class="side-group current" open>'
+    assert page.count(opened) == 1                       # only the group with this page
+    money = page[page.index(opened):]
+    assert '<a href="/rent" aria-current="page">Rent</a>' in money[:money.index("</details>")]
+    assert "No chats yet." in page
+
+
+def test_login_page_has_no_sidebar(env):
+    with TestClient(create_app()) as c:
+        page = c.get("/login").text
+    assert 'id="side"' not in page and "sidebar.js" not in page   # that script needs a login
+
+
+def test_sidebar_lists_chats_on_other_pages(client, monkeypatch):
+    from contextlib import nullcontext
+
+    from rental_agent import db
+    monkeypatch.setenv("RENTAL_DB_URL", "postgresql://unused")
+    monkeypatch.setattr(db, "connect", lambda _url: nullcontext())
+    monkeypatch.setattr(db, "chats_list", lambda _c: [{"id": 7, "title": "Fence receipt"}])
+    page = " ".join(client.get("/settings").text.split())
+    assert '<a href="/c/7" >Fence receipt</a>' in page
+
+
+def test_sidebar_is_empty_when_the_chats_table_is_missing(client, monkeypatch):
+    """An out-of-date schema sends the owner to Settings; the sidebar must not fail there too."""
+    from contextlib import nullcontext
+
+    import psycopg
+
+    from rental_agent import db
+
+    def missing(_conn):
+        raise psycopg.errors.UndefinedTable("chats")
+
+    monkeypatch.setenv("RENTAL_DB_URL", "postgresql://unused")
+    monkeypatch.setattr(db, "connect", lambda _url: nullcontext())
+    monkeypatch.setattr(db, "chats_list", missing)
+    r = client.get("/settings")
+    assert r.status_code == 200 and "No chats yet." in r.text
