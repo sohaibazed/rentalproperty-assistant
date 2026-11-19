@@ -27,7 +27,7 @@ RENT_COMPS = [{"address": f"{r} Elm St", "beds": 3, "baths": 2, "sqft": 1800, "r
 def seeded():
     with psycopg.connect(ADMIN, autocommit=True) as conn:
         conn.execute("truncate rent_payments, expenses, email_ingest_log, sync_runs, "
-                     "rent_research, lease_tenants, leases, tenants, properties "
+                     "rent_research, tax_protests, lease_tenants, leases, tenants, properties "
                      "restart identity cascade")
         pid = conn.execute(
             "insert into properties (address, city, county, zip, property_type, beds, baths, sqft) "
@@ -71,7 +71,10 @@ def test_writes_the_report_from_saved_rent_research_and_expenses(seeded, tmp_pat
     outcome = asyncio.run(runner.run_job("tax-protest", params, settings))
 
     report = tmp_path / "2027" / "tax-protest" / "12-oak-st.md"
-    assert outcome.ok and outcome.outputs == [report]
+    packet = report.with_name("12-oak-st-evidence.pdf")
+    assert outcome.ok and outcome.outputs == [report, packet]
+    assert packet.read_bytes().startswith(b"%PDF")
+    assert any(line.startswith("Evidence packet written (PDF)") for line in outcome.summary)
     assert outcome.summary[0] == ("District value $450,000 (2027); opinion of value $415,000 "
                                   "from 5 similar homes and 0 sales.")
     assert outcome.summary[1] == "File by May 17, 2027."
@@ -83,9 +86,57 @@ def test_writes_the_report_from_saved_rent_research_and_expenses(seeded, tmp_pat
     assert "the income supports **$444,000**" in md
     assert md.count("[link](https://example.com/r)") == 3
 
-    with psycopg.connect(ADMIN) as conn:                  # the job saves nothing
+    with psycopg.connect(ADMIN) as conn:                  # the rent research is not touched
         assert conn.execute("select count(*), max(recommended_rent) from rent_research") \
             .fetchone() == (1, Decimal("2600.00"))
+        # What the Property tax page shows: the values, the notice's dates and the files.
+        assert conn.execute(
+            "select property_id, year, district_value, value_year, opinion, notice_date, "
+            "deadline, report_path, packet_path, filed_on, hearing_date, prepared_at is not null "
+            "from tax_protests").fetchall() == [
+            (seeded, 2027, Decimal("450000.00"), 2027, Decimal("415000.00"), date(2027, 4, 15),
+             date(2027, 5, 17), "2027/tax-protest/12-oak-st.md",
+             "2027/tax-protest/12-oak-st-evidence.pdf", None, None, True)]
+
+
+def test_a_later_run_keeps_what_the_owner_recorded_and_drops_a_stale_packet(
+        seeded, tmp_path, monkeypatch):
+    monkeypatch.setattr(tp, "load_record", _record)
+    monkeypatch.setattr(tp, "ask_agents", _agents)
+    with psycopg.connect(ADMIN, autocommit=True) as conn:
+        conn.execute("insert into tax_protests (property_id, year, filed_on, hearing_date) "
+                     "values (%s, 2027, '2027-05-03', '2027-06-14')", (seeded,))
+    settings = Settings(model="test", db_url=DB, artifacts_dir=tmp_path, reference_dir=tmp_path,
+                        email_sources_path=tmp_path)
+
+    def run(hearing_date=None):
+        return asyncio.run(tp.run(settings, property_id=seeded, year=2027, cad_id=None,
+                                  hearing_date=hearing_date))
+
+    def recorded():
+        with psycopg.connect(ADMIN) as conn:
+            return conn.execute("select filed_on, hearing_date, opinion, packet_path "
+                                "from tax_protests").fetchall()
+
+    # No hearing date given: the report uses the one recorded on the page.
+    protest, report, packet = run()
+    assert protest.hearing == date(2027, 6, 14)
+    assert "| **June 14, 2027** | Your hearing" in report.read_text()
+    assert packet.is_file()
+    assert recorded() == [(date(2027, 5, 3), date(2027, 6, 14), Decimal("415000.00"),
+                           "2027/tax-protest/12-oak-st-evidence.pdf")]
+
+    # A new hearing date is saved. An opinion above the district's value leaves no packet.
+    async def no_case(facts, settings):
+        return {**await _agents(facts, settings), "opinion_of_value": 455000}
+
+    monkeypatch.setattr(tp, "ask_agents", no_case)
+    outcome = asyncio.run(runner.run_job("tax-protest", {
+        "property_id": seeded, "year": 2027, "cad_id": None,
+        "hearing_date": date(2027, 6, 21)}, settings))
+    assert outcome.outputs == [report] and not packet.exists()
+    assert any(line.startswith("No evidence packet") for line in outcome.summary)
+    assert recorded() == [(date(2027, 5, 3), date(2027, 6, 21), Decimal("455000.00"), None)]
 
 
 def test_only_collin_county(seeded, tmp_path):

@@ -29,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from rental_agent import attention, db, gmail, renewal, runner
+from rental_agent import attention, db, gmail, property_tax, renewal, runner
 from rental_agent.config import artifacts_dir, env_or_file, reference_dir
 from rental_agent.jobs import rent_research
 from rental_agent.jobs.lease import NOTICE_DAYS, long_date
@@ -148,9 +148,11 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         return RedirectResponse("/login", status_code=303)
 
     @app.exception_handler(psycopg.errors.UndefinedColumn)
+    @app.exception_handler(psycopg.errors.UndefinedTable)
     async def schema_out_of_date(request: Request, _exc: Exception):
-        flash(request, "The database is missing a newer column. Run supabase/schema.sql again "
-                       "in the Supabase SQL Editor (README section 3.2).", "error")
+        flash(request, "The database is missing a newer table or column. Run "
+                       "supabase/schema.sql again in the Supabase SQL Editor (README section "
+                       "3.2).", "error")
         return RedirectResponse("/settings", status_code=303)
 
     chat_views.register(app, store=store, jobs=manager, chats=chats, page=page, flash=flash,
@@ -203,8 +205,10 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         if job not in runner.JOBS:
             raise HTTPException(404)
         form = await request.form()
-        # The Renewal page starts jobs too; a job that can't start goes back to where it came from.
-        back = "/renewal" if form.get("back") == "renewal" else "/jobs"
+        # The Renewal and Property tax pages start jobs too; a job that can't start goes back
+        # to where it came from.
+        back = {"renewal": "/renewal", "property-tax": "/property-tax"}.get(form.get("back"),
+                                                                           "/jobs")
         try:
             params = runner.parse_params(job, dict(form))
             run_id = await manager.start(job, params)
@@ -333,6 +337,46 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         return page(request, "renewal.html", renewals=renewals, db_error=db_error,
                     notice_days=NOTICE_DAYS,
                     lead_days=NOTICE_DAYS + renewal.RENEWAL_LEAD_DAYS)
+
+    @app.get("/property-tax", response_class=HTMLResponse)
+    async def property_tax_page(request: Request):
+        """Each Collin County property's protest: the date that matters now, its three steps,
+        and every date of the tax year."""
+        conn, db_error = connect()
+        seasons = []
+        if conn:
+            with conn:
+                seasons = property_tax.load(conn, date.today())
+        return page(request, "property_tax.html", seasons=seasons, db_error=db_error)
+
+    @app.post("/property-tax/{property_id}/{year}")
+    async def record_protest(request: Request, property_id: int, year: int):
+        """Save the day the protest was filed or the hearing date; an empty date clears it.
+        A form sends one of the two, and the other stays as it is."""
+        back = RedirectResponse("/property-tax", status_code=303)
+        form = await request.form()
+        try:
+            given = {name: date.fromisoformat(form[name]) if form[name].strip() else None
+                     for name in ("filed_on", "hearing_date") if name in form}
+        except ValueError:
+            flash(request, "Not saved: that is not a date.", "error")
+            return back
+        conn, db_error = connect()
+        if not conn:
+            flash(request, db_error, "error")
+            return back
+        with conn:
+            shown = {(s.property_id, s.year) for s in property_tax.load(conn, date.today())}
+            if (property_id, year) not in shown:
+                raise HTTPException(404)
+            saved = db.tax_protest(conn, property_id, year) or {}
+            db.record_tax_protest(
+                conn, property_id, year,
+                filed_on=given.get("filed_on", saved.get("filed_on")),
+                hearing_date=given.get("hearing_date", saved.get("hearing_date")))
+            conn.commit()
+        flash(request, "Saved.")
+        return back
 
     @app.get("/files/{path:path}")
     async def download(path: str):

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Property tax · Rental Agent{% endblock %}
+
+{% macro badge(done, next) %}
+  {% if done %}<span class="pill success">done</span>{% elif next %}<span class="pill running">next</span>{% endif %}
+{% endmacro %}
+
+{% block content %}
+<h1>Property tax</h1>
+{% include "_db_error.html" %}
+<p class="muted">The yearly protest of the appraisal district's value, for properties in Collin County. The district mails its
+  notice about April 15. The protest must be filed by May 15, or 30 days after the notice if that is later.
+  This page files nothing: you file with the district.</p>
+{% for s in seasons %}
+<section class="card">
+  <h2>{{ s.label }}: {{ s.year }} tax year</h2>
+
+  <div class="deadline{{ ' late' if s.headline.late }}">
+    {% if s.headline.day %}<span class="when">{{ s.headline.day | long_date }}</span>{% endif %}
+    {% if s.headline.left %}<span class="pill running">{{ s.headline.left }}</span>{% endif %}
+    <span class="what">{{ s.headline.text }}</span>
+  </div>
+
+  <ol class="steps">
+    <li class="{{ 'done' if s.prepared else 'next' if s.step == 'prepare' }}">
+      <h3>1. Prepare the evidence {{ badge(s.prepared, s.step == "prepare") }}</h3>
+      {% if s.saved.prepared_at %}
+        <p>District's value {{ "${:,.0f}".format(s.saved.district_value) }} ({{ s.saved.value_year }});
+          opinion of value {{ "${:,.0f}".format(s.saved.opinion) }}.
+          Prepared on {{ s.saved.prepared_at.astimezone() | long_date }}.</p>
+        {% if not s.prepared %}
+          <p class="muted">This is a preview. The district has not published its {{ s.year }} values yet, so the job
+            used its {{ s.saved.value_year }} values. Prepare it again when the notice arrives.</p>
+        {% endif %}
+        <p><a href="/report/{{ s.saved.report_path }}">Read the report</a>
+          {% if s.saved.packet_path %}· <a href="/files/{{ s.saved.packet_path }}">Open the evidence PDF</a>{% endif %}</p>
+        {% if not s.saved.packet_path %}
+          <p class="muted">No evidence PDF was written: the evidence found does not support a value below the district's.</p>
+        {% endif %}
+      {% else %}
+        <p class="muted">Not prepared yet. The job compares the district's value with similar homes, recent sales and
+          the rental income. It writes a report for you and, when the evidence supports a lower value, an evidence PDF
+          to upload for the hearing.</p>
+      {% endif %}
+      {% if s.step == "wait" %}
+        <p class="muted">Nothing to do yet: the district mails the notice about {{ s.notice | long_date }}. A run
+          before then is a preview on last year's values.</p>
+      {% endif %}
+      {% set run = s.run %}
+      {% if run and run.status == "running" %}
+        <p>The job is running: <a href="/runs/{{ run.id }}">run #{{ run.id }}</a>.</p>
+      {% elif run and run.status == "failed" %}
+        <p>The last run failed: <a href="/runs/{{ run.id }}">run #{{ run.id }}</a>, {{ run.started_at.astimezone() | long_date }}.</p>
+      {% endif %}
+      <form method="post" action="/jobs/tax-protest">
+        <input type="hidden" name="property_id" value="{{ s.property_id }}">
+        <input type="hidden" name="year" value="{{ s.year }}">
+        <input type="hidden" name="back" value="property-tax">
+        <button {% if s.saved.prepared_at or s.step == "wait" %}class="secondary"{% endif %} {% if busy %}disabled{% endif %}>{{ "Prepare it again" if s.saved.prepared_at else "Prepare the protest" }}</button>
+      </form>
+      <p class="small muted">It takes a few minutes and uses Claude.</p>
+    </li>
+    <li class="{{ 'done' if s.filed_on else 'next' if s.step == 'file' }}">
+      <h3>2. File the protest {{ badge(s.filed_on, s.step == "file") }}</h3>
+      {% if s.filed_on %}
+        <p>Filed on {{ s.filed_on | long_date }}.</p>
+      {% else %}
+        <p>File the Notice of Protest on the district's Online Appeals site, with the PIN printed on your notice,
+          by <strong>{{ s.deadline | long_date }}</strong>. The report lists what to enter. Then record the day here.</p>
+      {% endif %}
+      <form method="post" action="/property-tax/{{ s.property_id }}/{{ s.year }}" class="inline">
+        <label for="filed-{{ s.property_id }}-{{ s.year }}">Filed on</label>
+        <input type="date" id="filed-{{ s.property_id }}-{{ s.year }}" name="filed_on" value="{{ s.filed_on or '' }}">
+        <button class="secondary">Save</button>
+      </form>
+    </li>
+    <li class="{{ 'next' if s.step == 'hearing' }}">
+      <h3>3. Go to the hearing {{ badge(false, s.step == "hearing") }}</h3>
+      {% if s.hearing %}
+        <p>The hearing is on <strong>{{ s.hearing | long_date }}</strong>. Upload the evidence PDF through Online Appeals
+          by <strong>{{ s.evidence_due | long_date }}</strong>, 3 business days before it.</p>
+      {% else %}
+        <p class="muted">The board sends the hearing date at least 15 days ahead. Record it here, and the dates below
+          show the exact days to ask for the district's evidence and to upload yours.</p>
+      {% endif %}
+      <form method="post" action="/property-tax/{{ s.property_id }}/{{ s.year }}" class="inline">
+        <label for="hearing-{{ s.property_id }}-{{ s.year }}">Hearing date</label>
+        <input type="date" id="hearing-{{ s.property_id }}-{{ s.year }}" name="hearing_date" value="{{ s.hearing or '' }}">
+        <button class="secondary">Save</button>
+      </form>
+    </li>
+  </ol>
+
+  <h3>Dates for {{ s.year }}</h3>
+  <table class="dates">
+    <thead><tr><th>When</th><th>What</th><th></th></tr></thead>
+    <tbody>{% for d in s.dates %}
+    <tr class="{{ d.status }}{{ ' key' if d.key }}">
+      <td class="when">{{ d.when }}</td>
+      <td>{{ d.what }}</td>
+      <td>{% if d.status == "next" %}<span class="pill running">next</span>
+          {% elif d.status == "done" %}<span class="pill success">filed</span>
+          {% elif d.status == "passed" %}<span class="pill">passed</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+  <p class="small muted">Days in bold are last days to act, and the hearing.</p>
+</section>
+{% else %}
+  {% if not db_error %}<section class="card"><p class="muted">No property in Collin County is recorded. The protest dates
+    and forms here are Collin County's.</p></section>{% endif %}
+{% endfor %}
+{% endblock %}

@@ -4,6 +4,7 @@ from decimal import Decimal as D
 
 import pytest
 from claude_agent_sdk import ResultMessage
+from pypdf import PdfReader
 
 from rental_agent import collin_cad, runner
 from rental_agent.config import Settings
@@ -138,10 +139,12 @@ def test_report_contents():
         "**Opinion of value:** $415,000, which is $35,000 (7.8%) below the district",
         "**File by:** May 17, 2027 (27 days left)",
         "| December 31, 2026 | The 20% yearly limit",
+        "| **Before February 1, 2027** | The 2026 taxes are due.",
         "| **May 17, 2027** | Last day to file the protest. File online",
         "| May 31, 2027 | From this day the district must give you the evidence",
         "| June 4, 2027 | Last day to switch to a phone or video hearing",
-        "| June 9, 2027 | Upload your evidence",
+        "| **June 9, 2027** | Upload your evidence",
+        "| **June 14, 2027** | Your hearing",
         "Owner, as the district lists it: OAK ST LLC",
         "Property: 12 OAK ST (district property ID 101)",
         "Opinion of value (optional): $415,000",
@@ -170,7 +173,70 @@ def test_report_without_a_lower_value_or_a_hearing_date():
     assert "(27 days left; expected, the notice prints the exact date)" in md
     assert "| About April 15, 2027 | The district mails" in md
     assert "| Before your hearing | 14 days before" in md
+    assert "Record the hearing date on the Property tax page" in md
     assert "No rent research and no lease are recorded" in md
+
+
+def test_key_dates_carry_the_day_and_mark_the_ones_not_to_miss():
+    expected = tp.key_dates(2027, None, date(2027, 5, 17), False, None)
+    days = {d.when: d.day for d in expected}
+    assert days["About April 15, 2027"] == date(2027, 4, 15)
+    assert days["Before February 1, 2028"] == date(2028, 1, 31)
+    assert days["Before your hearing"] is None
+    assert [d.when for d in expected if d.key] == [
+        "Before February 1, 2027", "May 17, 2027", "Before February 1, 2028"]
+
+    known = tp.key_dates(2027, date(2027, 4, 16), date(2027, 5, 18), True, date(2027, 6, 14))
+    assert [(d.when, d.day) for d in known if d.key][1:4] == [
+        ("May 18, 2027", date(2027, 5, 18)), ("June 9, 2027", date(2027, 6, 9)),
+        ("June 14, 2027", date(2027, 6, 14))]
+    assert "April 16, 2027" in [d.when for d in known]          # mailed, no longer "About"
+
+
+def packet_text(path):
+    return "\n".join(page.extract_text() for page in PdfReader(path).pages)
+
+
+def test_packet_has_the_evidence_for_the_board_and_nothing_else(tmp_path):
+    out = tmp_path / "evidence.pdf"
+    assert tp.write_packet(tp.analyze(facts(), raw(), TODAY), out, TODAY)
+    text = packet_text(out)
+    for expected in (
+        "Property tax protest 2027: evidence", "12 Oak St, Plano, TX 75024", "OAK ST LLC",
+        "Owner's opinion of value", "$415,000", "$35,000 (7.8%)",
+        "1. Similar homes (unequal appraisal)", "$414,000",
+        "2. Recent sales (market value)", "$423,000",
+        "3. Rental income", "$420,000",
+        "12 OAK ST (this home)", "median of $230.00/sq ft",
+        "https://data.texas.gov/d/abcd-1234", "https://example.com/s",
+        "5.0% (source 1)", "https://example.com/cap",
+        "12 OAK ST, property ID 101, tax year 2027", "Page 1 of 2",
+    ):
+        assert expected in text, expected
+    # The owner's notes and the model's own words stay in the report.
+    for owner_only in ("Similar homes sit near", "Prices are flat", "little weight",
+                       "save a copy of the page", "Draft"):
+        assert owner_only not in text, owner_only
+
+
+def test_packet_leaves_out_evidence_that_supports_no_lower_value(tmp_path):
+    # Sales at $245 to $265/sq ft put this home at $459,000, above the district's $450,000.
+    high = [sale(price) for price in (441000, 450000, 459000, 468000, 477000)]
+    p = tp.analyze(facts(record(value_year=2026, deadline=None)), raw(sales=high, cap=None),
+                   TODAY)
+    out = tmp_path / "evidence.pdf"
+    assert tp.write_packet(p, out, TODAY)
+    text = packet_text(out)
+    assert "1. Similar homes (unequal appraisal)" in text
+    assert "Recent sales" not in text and "Rental income" not in text
+    assert "Draft. The district has not published its 2027 values yet" in text
+    assert "District's market value (2026)" in text
+
+
+def test_no_packet_when_the_evidence_supports_no_lower_value(tmp_path):
+    out = tmp_path / "evidence.pdf"
+    assert not tp.write_packet(tp.analyze(facts(), raw(opinion=455000), TODAY), out, TODAY)
+    assert not out.exists()
 
 
 def row(year, value="450000", propid=101, **extra):

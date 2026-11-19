@@ -18,6 +18,7 @@
       </form>
     {% endif %}
     {% if run.job in ("research-rent", "generate-lease") %}<p><a href="/renewal">Back to Renewal</a></p>{% endif %}
+    {% if run.job == "tax-protest" %}<p><a href="/property-tax">Back to Property tax</a></p>{% endif %}
   </section>
   <section class="card">
     <h2>Files</h2>

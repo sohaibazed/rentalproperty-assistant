@@ -1,8 +1,8 @@
 -- Rental Agent database schema. Run this whole file once in the Supabase SQL Editor
 -- (see README section 3). It is safe to run again: it skips anything that already exists.
 --
--- Tables: LLCs, properties, tenants, leases, rent payments, expenses, rent research, the owner's
--- documents, email-sync and job bookkeeping, and chat history. The app logs in as the
+-- Tables: LLCs, properties, tenants, leases, rent payments, expenses, rent research, property-tax
+-- protests, the owner's documents, email-sync and job bookkeeping, and chat history. The app logs in as the
 -- restricted role rental_agent (created at the end), which can read, add and update rows but
 -- never delete them.
 
@@ -132,6 +132,24 @@ create table if not exists rent_research (
   unique (property_id, year)
 );
 
+-- One row per property and tax year, for the Property tax page. The tax-protest job saves
+-- what it found and the files it wrote; the owner records the filing and the hearing date.
+create table if not exists tax_protests (
+  property_id     bigint not null references properties(id),
+  year            integer not null,
+  district_value  numeric(12,2),    -- the district's market value the job used
+  value_year      integer,          -- the year that value is for: `year`, or the year before as a preview
+  opinion         numeric(12,2),    -- the opinion of value
+  notice_date     date,             -- when the district mailed the notice; null until it has
+  deadline        date,             -- the protest deadline printed on that notice
+  report_path     text,             -- relative to artifacts/
+  packet_path     text,             -- the evidence PDF; null when no evidence supports a lower value
+  prepared_at     timestamptz,      -- when the job last ran for this year
+  filed_on        date,             -- recorded by the owner
+  hearing_date    date,             -- recorded by the owner, from the board's hearing notice
+  primary key (property_id, year)
+);
+
 -- One row per Gmail message looked at, so syncs can be re-run safely.
 create table if not exists email_ingest_log (
   message_id    text primary key,
@@ -219,11 +237,12 @@ grant usage on schema public to rental_agent;
 grant usage on type schedule_e_category to rental_agent;
 grant select, insert on
   llcs, properties, tenants, leases, lease_tenants, rent_payments, expenses, rent_research,
-  email_ingest_log, sync_runs, job_runs, chats, chat_messages, reference_documents, claude_usage
+  tax_protests, email_ingest_log, sync_runs, job_runs, chats, chat_messages, reference_documents,
+  claude_usage
   to rental_agent;
 grant update on
-  llcs, properties, leases, rent_payments, expenses, rent_research, sync_runs, job_runs, chats,
-  chat_messages, reference_documents
+  llcs, properties, leases, rent_payments, expenses, rent_research, tax_protests, sync_runs,
+  job_runs, chats, chat_messages, reference_documents
   to rental_agent;  -- no DELETE anywhere
 
 -- Row-level security on every table. Only rental_agent gets a policy, so Supabase's public
@@ -233,8 +252,8 @@ declare t text;
 begin
   foreach t in array array[
     'llcs', 'properties', 'tenants', 'leases', 'lease_tenants', 'rent_payments', 'expenses',
-    'rent_research', 'email_ingest_log', 'sync_runs', 'job_runs', 'chats', 'chat_messages',
-    'reference_documents', 'claude_usage'
+    'rent_research', 'tax_protests', 'email_ingest_log', 'sync_runs', 'job_runs', 'chats',
+    'chat_messages', 'reference_documents', 'claude_usage'
   ] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists rental_agent_all on %I', t);

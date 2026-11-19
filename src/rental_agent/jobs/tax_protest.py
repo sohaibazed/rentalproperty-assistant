@@ -9,8 +9,10 @@ Three kinds of evidence, each computed by Python from data that has a source:
   property, at a market rate of return the researcher found.
 
 The main agent weighs the three and gives an opinion of value. Python checks that opinion
-against the figures and flags anything doubtful. The report also lists what to file, the
-documents to gather and the dates. Nothing is filed and nothing is saved to the database.
+against the figures and flags anything doubtful. The job writes a report for the owner, which
+also lists what to file, the documents to gather and the dates. When the evidence supports a
+lower value it also writes an evidence packet (PDF) to upload for the hearing. It saves what it
+found to tax_protests, for the Property tax page. Nothing is filed.
 
 Collin County only: the forms, addresses and dates are those of the Collin Central Appraisal
 District and its Appraisal Review Board (2026 procedures), under Texas Tax Code chapter 41.
@@ -25,7 +27,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from rental_agent import collin_cad, db
+from rental_agent import collin_cad, db, pdf
 from rental_agent.config import Settings
 from rental_agent.jobs import rent_research as rr
 from rental_agent.jobs.lease import long_date, money
@@ -66,7 +68,8 @@ FILING = """\
 DOCUMENTS = """\
 - The Notice of Appraised Value: it has the eFile PIN, the exact deadline and the QR code for
   an informal review.
-- This report, printed to PDF. The board takes PDF files, 20 MB in total for a property.
+- The evidence packet (PDF) this job writes when the evidence supports a lower value. The
+  board takes PDF files, 20 MB in total for a property.
 - Photos and repair estimates for anything that lowers the value: roof, foundation, HVAC,
   dated kitchen or baths.
 - Your closing statement, if you bought the house in the last few years.
@@ -221,6 +224,14 @@ class Protest:
     flags: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class KeyDate:
+    when: str                   # as printed: a day, or words such as "About April 15, 2027"
+    what: str
+    day: date | None = None     # the day, exact or expected; None when there isn't one day
+    key: bool = False           # a day not to miss: a last day to act, or the hearing
+
+
 def dollars(amount: Decimal) -> str:
     return f"${amount:,.0f}"
 
@@ -274,59 +285,85 @@ def business_days_before(day: date, count: int) -> date:
     return day
 
 
-def key_dates(p: Protest) -> list[tuple[str, str]]:
-    """(when, what) for the tax year, in order."""
-    year, record = p.facts.year, p.facts.record
+def evidence_due(hearing: date) -> date:
+    """The last day to upload evidence for a hearing: 3 business days before it."""
+    return business_days_before(hearing, 3)
+
+
+def key_dates(year: int, notice_date: date | None, deadline: date, deadline_is_official: bool,
+              hearing: date | None) -> list[KeyDate]:
+    """A tax year's dates, in order, for the report and the Property tax page."""
+    notice = notice_date or date(year, *NOTICE_DAY)
+    records = date(year, *RECORDS_APPROVED)
     rows = []
     if year == INCREASE_LIMIT_ENDED.year + 1:
-        rows.append((long_date(INCREASE_LIMIT_ENDED),
-                     ("The 20% yearly limit on value increases for property that is not a "
-                     f"homestead ended (Tax Code 23.231). The {year} value can rise to full "
-                     "market value, unless the Legislature has renewed the limit since.")))
+        rows.append(KeyDate(
+            long_date(INCREASE_LIMIT_ENDED),
+            ("The 20% yearly limit on value increases for property that is not a "
+             f"homestead ended (Tax Code 23.231). The {year} value can rise to full "
+             "market value, unless the Legislature has renewed the limit since."),
+            INCREASE_LIMIT_ENDED))
     rows += [
-        (long_date(date(year, 1, 1)),
-         "Appraisal date. The value is set as of this day, so sales closest to it count most."),
-        (long_date(record.notice_date) if record.notice_date
-         else f"About {long_date(date(year, *NOTICE_DAY))}",
-         ("The district mails the Notice of Appraised Value. Book an informal review with the "
-         "QR code on it; appointments run through May 15. A review does not replace the "
-         "protest.")),
-        (f"**{long_date(p.deadline)}**",
-         "Last day to file the protest"
-         + ("" if p.deadline_is_official else " (expected; the notice prints the exact date)")
-         + ". File online or in person: a mailed protest must be postmarked by this day, and "
-           "postmarks now run 1 to 2 days late."),
-        ("Mid-May to early July",
-         "Hearings for homes. The board sends your hearing date at least 15 days ahead."),
+        KeyDate(long_date(date(year, 1, 1)),
+                ("Appraisal date. The value is set as of this day, so sales closest to it "
+                 "count most."),
+                date(year, 1, 1)),
+        KeyDate(f"Before {long_date(date(year, 2, 1))}",
+                (f"The {year - 1} taxes are due. From February 1 they are late, and penalty "
+                 "and interest are added."),
+                date(year, 1, 31), key=True),
+        KeyDate(long_date(notice) if notice_date else f"About {long_date(notice)}",
+                ("The district mails the Notice of Appraised Value. Book an informal review "
+                 "with the QR code on it; appointments run through May 15. A review does not "
+                 "replace the protest."),
+                notice),
+        KeyDate(long_date(deadline),
+                "Last day to file the protest"
+                + ("" if deadline_is_official else " (expected; the notice prints the exact date)")
+                + ". File online or in person: a mailed protest must be postmarked by this "
+                  "day, and postmarks now run 1 to 2 days late.",
+                deadline, key=True),
+        KeyDate("Mid-May to early July",
+                "Hearings for homes. The board sends your hearing date at least 15 days ahead."),
     ]
-    if p.hearing:
+    if hearing:
         rows += [
-            (long_date(p.hearing - timedelta(days=14)),
-             "From this day the district must give you the evidence it will use. Ask for it."),
-            (long_date(p.hearing - timedelta(days=10)),
-             "Last day to switch to a phone or video hearing, in writing."),
-            (long_date(business_days_before(p.hearing, 3)),
-             "Upload your evidence through Online Appeals by this day (PDF, 20 MB in total)."),
-            (f"**{long_date(p.hearing)}**",
-             (f"Your hearing, at {OFFICE} unless you chose phone or video. Each side gets about "
-             "5 minutes. If you miss it, file a good-cause statement within 4 days.")),
+            KeyDate(long_date(hearing - timedelta(days=14)),
+                    ("From this day the district must give you the evidence it will use. Ask "
+                     "for it."),
+                    hearing - timedelta(days=14)),
+            KeyDate(long_date(hearing - timedelta(days=10)),
+                    "Last day to switch to a phone or video hearing, in writing.",
+                    hearing - timedelta(days=10)),
+            KeyDate(long_date(evidence_due(hearing)),
+                    ("Upload your evidence through Online Appeals by this day (PDF, 20 MB in "
+                     "total)."),
+                    evidence_due(hearing), key=True),
+            KeyDate(long_date(hearing),
+                    (f"Your hearing, at {OFFICE} unless you chose phone or video. Each side "
+                     "gets about 5 minutes. If you miss it, file a good-cause statement within "
+                     "4 days."),
+                    hearing, key=True),
         ]
     else:
-        rows.append(("Before your hearing",
-                     ("14 days before, ask for the district's evidence. 10 days before is the "
-                     "last day to switch to phone or video. 3 business days before, upload "
-                     "your evidence (PDF, 20 MB in total). Run this job again with the hearing "
-                     "date for the exact days.")))
+        rows.append(KeyDate(
+            "Before your hearing",
+            ("14 days before, ask for the district's evidence. 10 days before is the last day "
+             "to switch to phone or video. 3 business days before, upload your evidence (PDF, "
+             "20 MB in total). Record the hearing date on the Property tax page for the exact "
+             "days.")))
     rows += [
-        (f"About {long_date(date(year, *RECORDS_APPROVED))}",
-         ("The board approves the appraisal records. A late protest, which needs good cause, is "
-         "not possible after this.")),
-        ("60 days after you receive the board's order",
-         ("Last day to ask for binding arbitration (form AP-219, with a deposit) or to sue in "
-         "district court.")),
-        (f"Before {long_date(date(year + 1, 2, 1))}",
-         (f"The {year} taxes are due. During an appeal you must still pay at least the tax on "
-         "the value that is not in dispute.")),
+        KeyDate(f"About {long_date(records)}",
+                ("The board approves the appraisal records. A late protest, which needs good "
+                 "cause, is not possible after this."),
+                records),
+        KeyDate("60 days after you receive the board's order",
+                ("Last day to ask for binding arbitration (form AP-219, with a deposit) or to "
+                 "sue in district court.")),
+        KeyDate(f"Before {long_date(date(year + 1, 2, 1))}",
+                (f"The {year} taxes are due. During an appeal you must still pay at least the "
+                 "tax on the value that is not in dispute."),
+                date(year + 1, 1, 31), key=True),
     ]
     return rows
 
@@ -468,57 +505,92 @@ def analyze(facts: Facts, raw: dict[str, Any], today: date,
 # --- Report -------------------------------------------------------------------------------
 
 
-def _equity_section(p: Protest) -> list[str]:
+# The report (Markdown) and the evidence packet (PDF) print the same sentences and table rows.
+
+EQUITY_COLUMNS = ("Property ID", "Address", "Built", "Sq ft", "Pool", "District value",
+                  "Per sq ft")
+SALES_COLUMNS = ("Address", "Built", "Sq ft", "Sold", "Price", "Per sq ft", "Source")
+
+
+def _md_table(columns: tuple[str, ...], rows: list[list[str]]) -> list[str]:
+    return ["| " + " | ".join(columns) + " |", "|" + "---|" * len(columns),
+            *("| " + " | ".join(cells) + " |" for cells in rows)]
+
+
+def _equity_text(p: Protest) -> str:
     record, home = p.facts.record, p.facts.record.home
+    lower = sum(c.per_sqft < home.per_sqft for c in record.comps)
+    return (f"The district values this home at **{per_sqft(home.per_sqft)}**. The "
+            f"{len(record.comps)} other homes in its neighborhood {record.neighborhood} within "
+            f"20% of this home's size have a median of "
+            f"**{per_sqft(median_per_sqft(record.comps))}**, and {lower} of them are valued "
+            f"lower per square foot than this home. At the median this home would be "
+            f"**{dollars(p.equity_value)}**.")
+
+
+def _data_date(record: Record) -> str:
+    """Follows the name of the district's data set."""
+    return f", data as of {long_date(record.data_date)}" if record.data_date else ""
+
+
+def _equity_rows(p: Protest) -> tuple[list[list[str]], str]:
+    """This home first, then the similar homes closest to it in size, lowest value per square
+    foot first; and a line that says how many of them that is, if not all."""
+    record, home = p.facts.record, p.facts.record.home
+    shown = sorted(record.comps, key=lambda c: abs(c.sqft - home.sqft))[:SHOWN_COMPS]
+    rows = [[str(c.prop_id), c.address + (" (this home)" if c is home else ""),
+             str(c.year_built or "-"), f"{c.sqft:,}", "yes" if c.pool else "no",
+             dollars(c.value), f"${c.per_sqft:,.2f}"]
+            for c in [home] + sorted(shown, key=lambda c: c.per_sqft)]
+    note = (f"The {len(shown)} closest in size of {len(record.comps)}:"
+            if len(shown) < len(record.comps) else "")
+    return rows, note
+
+
+def _equity_section(p: Protest) -> list[str]:
+    record = p.facts.record
     lines = ["## Evidence 1: similar homes (unequal appraisal)", ""]
     if not record.comps:
         return lines + [(f"The district's data has no other homes within 20% of this home's "
                         f"size in its neighborhood {record.neighborhood}."), ""]
-    lower = sum(c.per_sqft < home.per_sqft for c in record.comps)
-    shown = sorted(record.comps, key=lambda c: abs(c.sqft - home.sqft))[:SHOWN_COMPS]
     lines += [
-        (f"The district values this home at **{per_sqft(home.per_sqft)}**. The "
-         f"{len(record.comps)} other homes in its neighborhood {record.neighborhood} within 20% "
-         f"of this home's size have a median of **{per_sqft(median_per_sqft(record.comps))}**, "
-         f"and {lower} of them are valued lower per square foot than this home. At the median "
-         f"this home would be **{dollars(p.equity_value)}**."),
+        _equity_text(p),
         "",
         ("The comparison adjusts for size only. Source: "
-         f"[{record.source.name}]({record.source.url})"
-         + (f", data as of {long_date(record.data_date)}" if record.data_date else "")
-         + ". Each property ID can be checked on the district's property search."),
+         f"[{record.source.name}]({record.source.url}){_data_date(record)}. Each property ID "
+         "can be checked on the district's property search."),
         "",
     ]
-    if len(shown) < len(record.comps):
-        lines += [f"The {len(shown)} closest in size of {len(record.comps)}:", ""]
-    lines += ["| Property ID | Address | Built | Sq ft | Pool | District value | Per sq ft |",
-              "|---|---|---|---|---|---|---|"]
-    for c in [home] + sorted(shown, key=lambda c: c.per_sqft):
-        mark = "**" if c is home else ""
-        lines.append(f"| {mark}{c.prop_id}{mark} | {mark}{c.address}"
-                     f"{' (this home)' if c is home else ''}{mark} | {c.year_built or '-'} | "
-                     f"{c.sqft:,} | {'yes' if c.pool else 'no'} | {dollars(c.value)} | "
-                     f"${c.per_sqft:,.2f} |")
-    return lines + [""]
+    rows, note = _equity_rows(p)
+    if note:
+        lines += [note, ""]
+    rows[0][:2] = [f"**{cell}**" for cell in rows[0][:2]]       # this home
+    return lines + _md_table(EQUITY_COLUMNS, rows) + [""]
+
+
+def _sales_text(p: Protest) -> str:
+    return (f"{len(p.sales)} sales since {long_date(date(p.facts.year - 1, 1, 1))} have a "
+            f"median of **{per_sqft(median_per_sqft(p.sales))}**. At that price this home "
+            f"({p.facts.record.home.sqft:,} sq ft) would be **{dollars(p.sales_value)}**.")
+
+
+def _sales_rows(p: Protest) -> list[tuple[list[str], str]]:
+    """(cells without the source, source URL) for each sale, lowest price per sq ft first."""
+    return [([s.address, str(s.year_built or "-"), f"{s.sqft:,}", s.sold_on.isoformat(),
+              dollars(s.price), f"${s.per_sqft:,.2f}"], s.source_url)
+            for s in sorted(p.sales, key=lambda s: s.per_sqft)]
 
 
 def _sales_section(p: Protest) -> list[str]:
-    home = p.facts.record.home
     lines = ["## Evidence 2: recent sales", ""]
     if p.sales:
         lines += [
-            (f"{len(p.sales)} sales since {long_date(date(p.facts.year - 1, 1, 1))} have a "
-             f"median of **{per_sqft(median_per_sqft(p.sales))}**. At that price this home "
-             f"({home.sqft:,} sq ft) would be **{dollars(p.sales_value)}**. Texas does not "
-             "publish sale prices, so open each source and save a copy of the page as proof."),
+            (f"{_sales_text(p)} Texas does not publish sale prices, so open each source and "
+             "save a copy of the page as proof."),
             "",
-            "| Address | Built | Sq ft | Sold | Price | Per sq ft | Source |",
-            "|---|---|---|---|---|---|---|",
+            *_md_table(SALES_COLUMNS, [[*cells, f"[link]({url})"]
+                                       for cells, url in _sales_rows(p)]),
         ]
-        for s in sorted(p.sales, key=lambda s: s.per_sqft):
-            lines.append(f"| {s.address} | {s.year_built or '-'} | {s.sqft:,} | "
-                         f"{s.sold_on.isoformat()} | {dollars(s.price)} | ${s.per_sqft:,.2f} | "
-                         f"[link]({s.source_url}) |")
     else:
         lines.append("No usable sales were found.")
     if p.dropped:
@@ -526,25 +598,33 @@ def _sales_section(p: Protest) -> list[str]:
     return lines + [""]
 
 
-def _income_section(p: Protest) -> list[str]:
+def _income_rows(p: Protest) -> list[tuple[str, str]]:
+    """(label, value) for the rent, the costs and what is left."""
     income, home = p.facts.income, p.facts.record.home
-    lines = ["## Evidence 3: rental income", ""]
-    if income is None:
-        return lines + ["No rent research and no lease are recorded for this property.", ""]
     costs = sum(income.expenses.values(), Decimal(0))
     detail = ", ".join(f"{name.replace('_', ' ')} {dollars(amount)}"
                        for name, amount in sorted(income.expenses.items()))
+    return [
+        ("Market rent" if income.comps else "Rent",
+         f"{money(income.rent)}/month ({rent_basis(income)})"
+         + (f". The current lease is {money(income.lease_rent)}" if income.comps
+            and income.lease_rent else "")),
+        (f"Operating expenses recorded for {income.expense_year}",
+         dollars(costs) + (f" ({detail})" if detail else "")),
+        ("Net income", f"{dollars(income.net)} a year"),
+        ("Return at the district's value", f"{income.net / home.value:.1%}"),
+    ]
+
+
+def _income_section(p: Protest) -> list[str]:
+    income = p.facts.income
+    lines = ["## Evidence 3: rental income", ""]
+    if income is None:
+        return lines + ["No rent research and no lease are recorded for this property.", ""]
     lines += [
         "Review boards give this little weight for a single-family house. Use it as support.",
         "",
-        f"- **{'Market rent' if income.comps else 'Rent'}:** {money(income.rent)}/month "
-        f"({rent_basis(income)})"
-        + (f". The current lease is {money(income.lease_rent)}" if income.comps
-           and income.lease_rent else ""),
-        f"- **Operating expenses recorded for {income.expense_year}:** {dollars(costs)}"
-        + (f" ({detail})" if detail else ""),
-        f"- **Net income:** {dollars(income.net)} a year",
-        f"- **Return at the district's value:** {income.net / home.value:.1%}",
+        *(f"- **{label}:** {value}" for label, value in _income_rows(p)),
     ]
     if p.income_value:
         lines.append(f"- **At a market rate of return of {p.cap_rate:.1%}** "
@@ -591,7 +671,9 @@ def render_report(p: Protest, today: date) -> str:
     if p.flags:
         lines += ["## Check before using", ""] + [f"- {x}" for x in p.flags] + [""]
     lines += ["## Dates", "", "| When | What |", "|---|---|"]
-    lines += [f"| {when} | {what} |" for when, what in key_dates(p)]
+    lines += [f"| {f'**{d.when}**' if d.key else d.when} | {d.what} |"
+              for d in key_dates(f.year, record.notice_date, p.deadline, p.deadline_is_official,
+                                 p.hearing)]
     lines += [
         "",
         "## What to file",
@@ -611,6 +693,107 @@ def render_report(p: Protest, today: date) -> str:
         lines += ["## Market notes", "", p.market_notes, ""]
     lines += ["## Property facts used", "", "```", f.as_text().rstrip(), "```", ""]
     return "\n".join(lines)
+
+
+# --- Evidence packet ----------------------------------------------------------------------
+
+
+def _numbered(urls: list[str]) -> tuple[list[str], pdf.Links]:
+    """The number each URL is listed under, and the list: a table prints the number, and the
+    full address is printed once below it."""
+    unique = list(dict.fromkeys(urls))
+    return [str(unique.index(url) + 1) for url in urls], pdf.Links(unique)
+
+
+def _equity_blocks(p: Protest) -> list[pdf.Block]:
+    record = p.facts.record
+    rows, note = _equity_rows(p)
+    return [
+        _equity_text(p),
+        ("The comparison adjusts for size only. The values are the district's own, from its "
+         f"open data: {record.source.name}{_data_date(record)}."),
+        pdf.Links([record.source.url]),
+        *([note] if note else []),
+        pdf.Table(EQUITY_COLUMNS, rows, widths=(13, 31, 8, 9, 7, 17, 13),
+                  right=frozenset({3, 5, 6}), bold=frozenset({0})),
+    ]
+
+
+def _sales_blocks(p: Protest) -> list[pdf.Block]:
+    rows = _sales_rows(p)
+    numbers, sources = _numbered([url for _, url in rows])
+    return [
+        _sales_text(p),
+        pdf.Table(SALES_COLUMNS, [[*cells, n] for (cells, _), n in zip(rows, numbers)],
+                  widths=(34, 8, 9, 13, 13, 12, 9), right=frozenset({2, 4, 5})),
+        "Sources:",
+        sources,
+    ]
+
+
+def _income_blocks(p: Protest) -> list[pdf.Block]:
+    comps = sorted(p.facts.income.comps, key=lambda c: c.rent)
+    numbers, sources = _numbered([p.cap_rate_source] + [c.source_url for c in comps])
+    blocks: list[pdf.Block] = [pdf.Facts([
+        *_income_rows(p),
+        ("Market rate of return", f"{p.cap_rate:.1%} (source {numbers[0]})"),
+        ("Value the income supports", dollars(p.income_value)),
+    ])]
+    if comps:
+        blocks += ["The comparable rents:", pdf.Table(
+            ("Address", "Beds", "Baths", "Sq ft", "Rent", "Source"),
+            [[c.address, f"{c.beds or '-'}", f"{c.baths or '-'}",
+              f"{c.sqft:,}" if c.sqft else "-", money(c.rent), n]
+             for c, n in zip(comps, numbers[1:])],
+            widths=(42, 9, 9, 11, 15, 10), right=frozenset({3, 4}))]
+    return blocks + ["Sources:", sources]
+
+
+def write_packet(p: Protest, out: Path, today: date) -> bool:
+    """The evidence for the review board, as a PDF to upload before the hearing. It has only
+    the kinds of evidence that support a value below the district's, and only figures computed
+    here from data that has a source: nothing the model wrote. Returns False, and writes
+    nothing, when the opinion of value or all the evidence is at or above the district's
+    value."""
+    f, record, home = p.facts, p.facts.record, p.facts.record.home
+    kinds = [(title, value, blocks) for title, value, blocks in (
+        ("Similar homes (unequal appraisal)", p.equity_value, _equity_blocks),
+        ("Recent sales (market value)", p.sales_value, _sales_blocks),
+        ("Rental income", p.income_value, _income_blocks),
+    ) if value is not None and value < home.value]
+    if p.opinion >= home.value or not kinds:
+        return False
+
+    cut = home.value - p.opinion
+    blocks: list[pdf.Block] = []
+    if record.value_year != f.year:
+        blocks.append(f"**Draft.** The district has not published its {f.year} values yet, so "
+                      f"this packet uses its {record.value_year} values. Prepare it again when "
+                      "the notice arrives.")
+    blocks += [
+        pdf.Facts([
+            ("Property", f.address),
+            ("District property ID", str(home.prop_id)),
+            ("Owner", record.owner),
+            ("Tax year", f"{f.year} (value as of January 1, {f.year})"),
+            (f"District's market value ({record.value_year})", dollars(home.value)),
+            ("Owner's opinion of value", dollars(p.opinion)),
+            ("Reduction asked for", f"{dollars(cut)} ({cut / home.value:.1%})"),
+        ]),
+        "The evidence in this packet, and the value each kind supports for this property:",
+        pdf.Table(("Evidence", "Value it supports"),
+                  [[f"{n}. {title}", dollars(value)]
+                   for n, (title, value, _) in enumerate(kinds, start=1)],
+                  widths=(70, 30), right=frozenset({1})),
+    ]
+    for n, (title, _, section) in enumerate(kinds, start=1):
+        blocks += [pdf.Heading(f"{n}. {title}"), *section(p)]
+    pdf.write(out, title=f"Property tax protest {f.year}: evidence",
+              subtitle=(f"{f.address}. Collin Central Appraisal District property ID "
+                        f"{home.prop_id}. Prepared {long_date(today)}."),
+              footer=f"{home.address}, property ID {home.prop_id}, tax year {f.year}",
+              blocks=blocks)
+    return True
 
 
 # --- Loading and running ------------------------------------------------------------------
@@ -728,15 +911,35 @@ async def ask_agents(facts: Facts, settings: Settings) -> dict[str, Any]:
 async def run(
     settings: Settings, *, property_id: int, year: int | None, cad_id: int | None,
     hearing_date: date | None,
-) -> tuple[Protest, Path]:
+) -> tuple[Protest, Path, Path | None]:
+    """Returns the protest, the report and the evidence packet (None if none was written)."""
     today = date.today()
     with db.connect(settings.db_url) as conn:
         facts = load_facts(conn, property_id, year or default_year(today), cad_id)
+        saved = db.tax_protest(conn, property_id, facts.year)
+    # Without a hearing date for this run, use the one recorded on the Property tax page.
+    hearing = hearing_date or (saved["hearing_date"] if saved else None)
 
-    protest = analyze(facts, await ask_agents(facts, settings), today, hearing_date)
+    protest = analyze(facts, await ask_agents(facts, settings), today, hearing)
 
-    report = (settings.artifacts_dir / str(facts.year) / "tax-protest"
-              / f"{rr.report_slug(facts.address)}.md")
+    folder = settings.artifacts_dir / str(facts.year) / "tax-protest"
+    slug = rr.report_slug(facts.address)
+    report = folder / f"{slug}.md"
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(render_report(protest, today))
-    return protest, report
+    packet: Path | None = folder / f"{slug}-evidence.pdf"
+    if not write_packet(protest, packet, today):
+        packet.unlink(missing_ok=True)      # one from an earlier run no longer holds
+        packet = None
+
+    record = facts.record
+    with db.connect(settings.db_url) as conn:
+        db.save_tax_protest(
+            conn, property_id=property_id, year=facts.year, district_value=record.home.value,
+            value_year=record.value_year, opinion=protest.opinion,
+            notice_date=record.notice_date, deadline=record.deadline,
+            report_path=str(report.relative_to(settings.artifacts_dir)),
+            packet_path=str(packet.relative_to(settings.artifacts_dir)) if packet else None,
+            hearing_date=hearing_date)
+        conn.commit()
+    return protest, report, packet

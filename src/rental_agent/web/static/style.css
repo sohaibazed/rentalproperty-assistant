@@ -72,6 +72,17 @@ header form { margin: 0; }
 .steps h3 { font-size: .95rem; margin: 0 0 6px; }
 .steps p { margin: 0 0 8px; }
 .steps summary { cursor: pointer; color: var(--accent); }
+/* Property tax page: the date that matters now, then every date of the year. */
+.deadline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 12px 16px; margin: 0 0 6px;
+  border-radius: 8px; border-left: 4px solid var(--warn); background: var(--warn-bg); }
+.deadline.late { border-left-color: var(--bad); background: var(--bad-bg); }
+.deadline .when { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; }
+.deadline .what { flex-basis: 100%; }
+.dates td.when { min-width: 9.5em; }
+.dates tr.key td.when { font-weight: 700; }
+.dates tr.next td { background: var(--warn-bg); }
+.dates tr.passed td, .dates tr.done td { color: var(--muted); }
+.card > h3 { font-size: .95rem; margin: 18px 0 8px; }
 .stats div { display: flex; flex-direction: column; margin-bottom: 10px; }
 .stats .num { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 pre { background: var(--subtle); border: 1px solid var(--line); border-radius: 8px; padding: 12px;

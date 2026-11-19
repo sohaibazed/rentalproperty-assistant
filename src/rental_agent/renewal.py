@@ -87,7 +87,7 @@ def load(conn: psycopg.Connection, today: date) -> list[Renewal]:
 
         found.append(Renewal(
             property_id=prop.id, label=prop.label, current=current, draft=draft,
-            research=research, research_run=db.last_research_run(conn, prop.id),
+            research=research, research_run=db.last_property_run(conn, "research-rent", prop.id),
             next_start=next_start, next_end=next_end, opens_on=opens_on, sign_by=sign_by,
             step=step, timing=timing, days_left=(sign_by - today).days,
             auto_research=auto_research))

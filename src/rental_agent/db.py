@@ -401,6 +401,60 @@ def upsert_rent_research(
     )
 
 
+# --- Property-tax protests ----------------------------------------------------------------
+
+
+def tax_protest(conn: psycopg.Connection, property_id: int, year: int) -> dict | None:
+    """What is recorded for a property's protest in a tax year, if anything."""
+    rows = _dicts(conn, "select * from tax_protests where property_id = %s and year = %s",
+                  (property_id, year))
+    return rows[0] if rows else None
+
+
+def save_tax_protest(
+    conn: psycopg.Connection,
+    *,
+    property_id: int,
+    year: int,
+    district_value: Decimal,
+    value_year: int,
+    opinion: Decimal,
+    notice_date: date | None,
+    deadline: date | None,        # from the district's notice; None while it is only expected
+    report_path: str,
+    packet_path: str | None,
+    hearing_date: date | None,
+) -> None:
+    """What the tax-protest job found. Leaves the filing date as it is, and the hearing date
+    too unless a new one is given."""
+    conn.execute(
+        """insert into tax_protests (property_id, year, district_value, value_year, opinion,
+                                     notice_date, deadline, report_path, packet_path,
+                                     hearing_date, prepared_at)
+           values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+           on conflict (property_id, year) do update set
+             district_value = excluded.district_value, value_year = excluded.value_year,
+             opinion = excluded.opinion, notice_date = excluded.notice_date,
+             deadline = excluded.deadline, report_path = excluded.report_path,
+             packet_path = excluded.packet_path, prepared_at = excluded.prepared_at,
+             hearing_date = coalesce(excluded.hearing_date, tax_protests.hearing_date)""",
+        (property_id, year, district_value, value_year, opinion, notice_date, deadline,
+         report_path, packet_path, hearing_date),
+    )
+
+
+def record_tax_protest(conn: psycopg.Connection, property_id: int, year: int, *,
+                       filed_on: date | None, hearing_date: date | None) -> None:
+    """What the owner records on the Property tax page. None clears a date."""
+    conn.execute(
+        """insert into tax_protests (property_id, year, filed_on, hearing_date)
+           values (%s, %s, %s, %s)
+           on conflict (property_id, year) do update set
+             filed_on = excluded.filed_on, hearing_date = excluded.hearing_date""",
+        (property_id, year, filed_on, hearing_date),
+    )
+
+
 # --- Web app: job runs and read-only views ------------------------------------------------
 
 
@@ -469,11 +523,11 @@ def last_job_run(conn: psycopg.Connection, job: str, trigger: str) -> dict | Non
     return rows[0] if rows else None
 
 
-def last_research_run(conn: psycopg.Connection, property_id: int) -> dict | None:
-    """The newest research-rent run for a property, however it was started."""
+def last_property_run(conn: psycopg.Connection, job: str, property_id: int) -> dict | None:
+    """The newest run of `job` for a property, however it was started."""
     rows = _dicts(conn, """select id, status, trigger, started_at from job_runs
-                           where job = 'research-rent' and params->>'property_id' = %s
-                           order by id desc limit 1""", (str(property_id),))
+                           where job = %s and params->>'property_id' = %s
+                           order by id desc limit 1""", (job, str(property_id)))
     return rows[0] if rows else None
 
 

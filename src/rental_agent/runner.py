@@ -46,13 +46,13 @@ JOBS: dict[str, tuple[str, list[Param]]] = {
     "tax-report": ("Year-end Schedule E summary (xlsx + csv)", [
         Param("year", "int", "Tax year", help="Default: last year"),
     ]),
-    "tax-protest": ("Collin County property-tax protest: evidence, forms and dates", [
+    "tax-protest": ("Collin County property-tax protest: report, evidence PDF and dates", [
         Param("property_id", "int", "Property ID", required=True),
         Param("year", "int", "Tax year", help="Default: the protest season that comes next"),
         Param("cad_id", "int", "District property ID",
               help="From the appraisal notice. Default: found by address"),
         Param("hearing_date", "date", "Hearing date",
-              help="From the hearing notice; adds the exact evidence dates"),
+              help="From the hearing notice. Default: the one on the Property tax page"),
     ]),
     "backup": ("Back up the database, artifacts/ and memory/ to one zip file", []),
 }
@@ -134,9 +134,9 @@ async def run_job(job: str, params: Mapping[str, Any], settings: Settings) -> Ou
         return Outcome(True, summary, [xlsx, csv_path])
 
     if job == "tax-protest":
-        p, report = await tax_protest.run(settings, property_id=params["property_id"],
-                                          year=params.get("year"), cad_id=params.get("cad_id"),
-                                          hearing_date=params.get("hearing_date"))
+        p, report, packet = await tax_protest.run(
+            settings, property_id=params["property_id"], year=params.get("year"),
+            cad_id=params.get("cad_id"), hearing_date=params.get("hearing_date"))
         record = p.facts.record
         summary = [(f"District value ${record.home.value:,.0f} ({record.value_year}); opinion "
                     f"of value ${p.opinion:,.0f} from {len(record.comps)} similar homes and "
@@ -144,8 +144,12 @@ async def run_job(job: str, params: Mapping[str, Any], settings: Settings) -> Ou
                    f"File by {lease.long_date(p.deadline)}"
                    + ("." if p.deadline_is_official else " (expected; check the notice).")]
         summary += [f"Check: {f}" for f in p.flags]
+        summary.append("Evidence packet written (PDF): upload it through Online Appeals before "
+                       "the hearing." if packet else
+                       "No evidence packet: the evidence does not support a value below the "
+                       "district's.")
         summary.append("Nothing was filed; the report lists what to file and when.")
-        return Outcome(True, summary, [report])
+        return Outcome(True, summary, [report, packet] if packet else [report])
 
     if job == "backup":
         b = backup.create(settings.db_url, settings.artifacts_dir, memory.path().parent,

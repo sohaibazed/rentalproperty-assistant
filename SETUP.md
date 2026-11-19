@@ -8,8 +8,9 @@ A private web app that helps run a small rental-property LLC:
   facts, ask about your leases or local rental rules, and start jobs. Every change waits for
   you to click a confirm card.
 - **Dashboard**: a **Needs attention** list at the top: rent that is missing or short in
-  the last three months, the lease renewal deadline, rows waiting for review, and a failed
-  email sync. The chat home page shows how many items there are.
+  the last three months, the lease renewal deadline, the property-tax protest deadline, rows
+  waiting for review, and a failed email sync. The chat home page shows how many items there
+  are.
 - **Review**: rent payments and expenses the email sync or a statement import wasn't sure
   about. Fix a row, confirm it, or remove it, here or by telling the chat what is wrong.
   Rent and Expenses have an **Edit** link on every row. A removed row is left out of totals
@@ -19,6 +20,12 @@ A private web app that helps run a small rental-property LLC:
   renewal opens 90 days before the term ends. Rent research then starts by itself, once.
   A generated extension is recorded as *awaiting signature*, and the Dashboard reminder stays
   until its signed copy is imported.
+- **Property tax**: the yearly protest for a property in Collin County. The date that
+  matters now is at the top, then three steps (prepare the evidence, file the protest, go to
+  the hearing) and every date of the tax year, with the last days to act in bold. Record the
+  day you filed and the hearing date there; the hearing date gives the exact day to upload
+  your evidence. The Dashboard reminder runs from the district's notice (about April 15)
+  until you record the filing or the deadline passes. The page files nothing.
 - **Jobs**: `sync-email` imports rent and expense emails from Gmail (automatically on the
   1st, 11th and 21st), `research-rent` recommends next year's rent from comparable listings
   (automatically when a renewal opens), `generate-lease` writes the yearly lease extension
@@ -26,7 +33,9 @@ A private web app that helps run a small rental-property LLC:
   builds the year-end Schedule E summary (with a depreciation estimate on its Review sheet
   when the property's purchase date and cost basis are set), and `tax-protest` prepares a
   Collin County property-tax protest: what to file, the dates, and evidence from the
-  district's own values for similar homes, recent sales and the saved rent research.
+  district's own values for similar homes, recent sales and the saved rent research. It
+  writes a report for you and, when the evidence supports a lower value, an evidence packet
+  (PDF) to upload for the hearing.
 - **Memory**: `memory/memory.md` holds your standing rules for every chat and job.
 
 It runs in Docker on your Mac at <http://localhost:8080>. Data lives in Supabase (Postgres),
@@ -365,7 +374,7 @@ them. To get back a single file, open the zip in Finder instead.
 | Can't sign in | `make set-login-email EMAIL=...` to fix the email. To reset the password, delete the Keychain item `rental-agent-ui-password` in Keychain Access, run `make init-keys`, then `make up`. |
 | "Can't reach the database" | Use the **Session pooler** URL with user `rental_agent.<project-ref>` (section 3.4), URL-encode special characters, and check the project isn't paused. |
 | "Tenant or user not found" | The username is missing its project ref: it must be `rental_agent.<project-ref>`, not just `rental_agent`. |
-| "permission denied", "relation ... does not exist" or "The database is missing a newer column" | Run [`supabase/schema.sql`](supabase/schema.sql) again (section 3.2), for example after pulling a newer version. |
+| "permission denied", "relation ... does not exist" or "The database is missing a newer table or column" | Run [`supabase/schema.sql`](supabase/schema.sql) again (section 3.2), for example after pulling a newer version. |
 | "RENTAL_DB_URL is not set" | Save the database URL in Settings. |
 | Chat says "Claude sign-in failed" | Check the API key or token in Settings (section 4). A Claude Code token can expire; run `claude setup-token` again. |
 | An import card says "isn't in the database yet" | The lease names an LLC that hasn't been imported. Import the LLC's documents first, or ask the chat to leave the owner blank. |

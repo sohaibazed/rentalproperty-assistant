@@ -3,6 +3,7 @@
 Each check compares what is recorded with today's date:
 - rent that is missing or short in a recent month;
 - a lease whose yearly extension is due, overdue, or that has run out;
+- a property-tax protest to file, from the district's notice to the filing deadline;
 - rows waiting on the Review page;
 - an email sync that failed;
 - a backup that failed, or no backup for several days.
@@ -15,7 +16,7 @@ from datetime import date, timedelta
 
 import psycopg
 
-from rental_agent import db, renewal
+from rental_agent import db, property_tax, renewal
 from rental_agent.jobs import tax_report
 from rental_agent.jobs.lease import NOTICE_DAYS, long_date, money
 
@@ -94,6 +95,25 @@ def renewal_items(conn: psycopg.Connection, today: date) -> list[Item]:
     return items
 
 
+def tax_items(conn: psycopg.Connection, today: date) -> list[Item]:
+    """One item per property from the day the district mails its notice until the protest is
+    filed or its deadline passes."""
+    items = []
+    for s in property_tax.load(conn, today):
+        if s.step not in ("prepare", "file"):
+            continue
+        mailed = (f"mailed the {s.year} appraisal notice on {long_date(s.notice)}"
+                  if s.saved.get("notice_date") else
+                  f"mails the {s.year} appraisal notice about {long_date(s.notice)}")
+        text = (f"{s.label}: the district {mailed}. File the protest by "
+                f"{long_date(s.deadline)} ({property_tax.time_left(s.deadline, today)})"
+                + ("." if s.deadline_is_official else "; the notice prints the exact date."))
+        if s.step == "prepare":
+            text += " Start by preparing the evidence."
+        items.append(Item("soon", text, "/property-tax", "Open Property tax"))
+    return items
+
+
 def review_items(conn: psycopg.Connection) -> list[Item]:
     count = db.review_count(conn)
     if not count:
@@ -128,6 +148,6 @@ def backup_items(conn: psycopg.Connection, today: date) -> list[Item]:
 
 def items(conn: psycopg.Connection, today: date) -> list[Item]:
     """Everything that needs attention, most urgent first."""
-    found = (sync_items(conn) + backup_items(conn, today) + rent_items(conn, today) + renewal_items(conn, today)
-             + review_items(conn))
+    found = (sync_items(conn) + backup_items(conn, today) + rent_items(conn, today)
+             + renewal_items(conn, today) + tax_items(conn, today) + review_items(conn))
     return sorted(found, key=lambda item: item.level != "now")

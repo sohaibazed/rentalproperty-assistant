@@ -17,9 +17,6 @@ When a feature ships, delete its entry.
    phone, sign in to both, and enable HTTPS certificates. Then run `tailscale serve` for port 8080,
    check sign-in, chat, attachments and confirm buttons through the new address (the Origin check
    on POSTs may need a fix), check the chat at phone width, and document it in `SETUP.md`.
-5. **Tax-protest extras.** Left out when the `tax-protest` job was built:
-   - a dashboard reminder during notice season (about April 15 to the protest deadline)
-   - a PDF evidence packet (needs a new dependency; today the report is printed to PDF by hand)
 
 ## Offered, not decided
 
