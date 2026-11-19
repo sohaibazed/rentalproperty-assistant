@@ -35,6 +35,17 @@ def client(env):
         yield c
 
 
+def test_session_cookie_survives_the_return_from_google(env):
+    """Google redirects back from another site; a strict cookie would be left out and the
+    Gmail callback would land on the login page."""
+    with TestClient(create_app()) as c:
+        r = c.post("/login", data={"email": "owner@example.com", "password": "pw"},
+                   headers=ORIGIN, follow_redirects=False)
+        assert "samesite=lax" in r.headers["set-cookie"].lower()
+        # Cross-site POSTs are still refused, with or without the cookie.
+        assert c.post("/logout", headers={"origin": "https://evil.example"}).status_code == 403
+
+
 def test_requires_login(env):
     with TestClient(create_app()) as c:
         r = c.get("/", follow_redirects=False)

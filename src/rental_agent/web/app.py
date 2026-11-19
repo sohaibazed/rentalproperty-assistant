@@ -97,7 +97,11 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
         return response
 
     # Added after `guard`, so it runs first and request.session is ready inside guard.
-    app.add_middleware(SessionMiddleware, secret_key=session_key, same_site="strict",
+    # "lax", not "strict": Google sends the browser back to /oauth/gmail/callback from another
+    # site, and a strict cookie is left out of that request, so guard would answer with the
+    # login page. Lax sends the cookie only on such top-level GETs; every POST is still
+    # refused unless it comes from this site (_same_origin).
+    app.add_middleware(SessionMiddleware, secret_key=session_key, same_site="lax",
                        max_age=12 * 3600)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
