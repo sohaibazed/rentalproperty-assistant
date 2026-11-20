@@ -5,7 +5,7 @@ PY := uv run python -m rental_agent
 
 .PHONY: setup test lint gmail-auth sync-email sync-email-dry tax-report generate-lease research-rent \
         tax-protest reference-sql import-document backup restore-backup init-keys set-login-email \
-        tls-cert up down logs
+        tls-cert init-tailscale up down logs
 
 setup:  ## Create .venv and install dependencies
 	uv sync
@@ -98,8 +98,22 @@ tls-cert:  ## Create the self-signed HTTPS certificate if there is none (make up
 	   echo "Created a self-signed HTTPS certificate in $(RENTAL_TLS_DIR), valid for 825 days."; \
 	 fi
 
-up: tls-cert  ## Build and start the web UI at https://localhost:8080
-	@RENTAL_SECRET_KEY="$$(security find-generic-password -s $(KEY_ITEM) -w)" \
+# Optional access from your own devices through Tailscale (SETUP.md, "Phone access with
+# Tailscale"). The tailscale service starts only when its auth key is in Keychain.
+TS_ITEM := rental-agent-tailscale-authkey
+
+init-tailscale:  ## One time: store a Tailscale auth key in Keychain, then run make up
+	@security find-generic-password -s $(TS_ITEM) >/dev/null 2>&1 \
+	  && echo "Tailscale auth key already in Keychain." \
+	  || { echo "Paste your Tailscale auth key:"; security add-generic-password -a "$$USER" -s $(TS_ITEM) -w; }
+
+up: tls-cert  ## Build and start the web UI at https://localhost:8080 (and Tailscale, if set up)
+	@TAILSCALE_AUTHKEY="$$(security find-generic-password -s $(TS_ITEM) -w 2>/dev/null)"; \
+	 if [ -n "$$TAILSCALE_AUTHKEY" ]; then \
+	   export TAILSCALE_AUTHKEY COMPOSE_PROFILES=tailscale; \
+	   echo "Tailscale auth key found: starting the tailscale service too."; \
+	 fi; \
+	 RENTAL_SECRET_KEY="$$(security find-generic-password -s $(KEY_ITEM) -w)" \
 	 RENTAL_UI_PASSWORD="$$(security find-generic-password -s $(PW_ITEM) -w)" \
 	 RENTAL_UI_USERNAME="$$(security find-generic-password -s $(USER_ITEM) -w)" \
 	 RENTAL_TLS_DIR="$(RENTAL_TLS_DIR)" \

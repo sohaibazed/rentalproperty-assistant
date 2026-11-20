@@ -101,6 +101,40 @@ visit this website** in Safari. The browser asks again from time to time. The ol
 The certificate is valid for 825 days. To make a new one, delete the two files in that folder
 and run `make up`.
 
+### Phone access with Tailscale (optional)
+
+[Tailscale](https://tailscale.com) is a private network between your own devices. With it,
+your phone can open the app at `https://rental-agent.<your-tailnet>.ts.net`, with a real
+certificate and no browser warning. Only devices signed in to your Tailscale account can
+reach that address; nothing is on the public internet. `make up` starts a `tailscale`
+container next to the app, which joins your network as the machine `rental-agent`. You don't
+need Tailscale installed on the Mac itself.
+
+1. Create a free Tailscale account. In the admin console, on the **DNS** page, turn on
+   **MagicDNS** and **HTTPS Certificates**.
+2. On the **Keys** page (under Settings), generate an **auth key**. Leave **Reusable** and
+   **Ephemeral** off. The key is used once, to register the container; the registration is
+   then kept in the Docker volume `tailscale-state`.
+3. Store the key in Keychain (item `rental-agent-tailscale-authkey`), then start:
+
+   ```bash
+   make init-tailscale
+   make up
+   ```
+
+   `make up` starts the container only when that Keychain item exists. Check it with
+   `docker logs rental-agent-tailscale`. The machine `rental-agent` appears on the
+   **Machines** page; its full name there is the address to open. In its menu, choose
+   **Disable key expiry**, or it signs out after 180 days.
+4. Install Tailscale on your phone, sign in with the same account, and open
+   `https://rental-agent.<your-tailnet>.ts.net`. The first visit can take up to a minute
+   while the certificate is issued. Sign in to the app as usual.
+
+**Connect Gmail** in Settings only works from `https://localhost:8080`, because Google sends
+the browser back to that address. To turn phone access off, delete the Keychain item, run
+`make up` and `docker rm -f rental-agent-tailscale`, and remove the machine in the admin
+console.
+
 > Don't lose the Keychain item `rental-agent-secret-key`. Without it the app can't read the
 > secrets you saved in Settings, and you'd have to enter them again.
 
@@ -334,7 +368,8 @@ Restart with `make up` after changing code, templates or prompts.
 | `reference/` (your documents; read-only to the app) | Folder on your Mac |
 | `config/` (`email_sources.toml`) | Folder on your Mac |
 | Encrypted secrets, chat session files | Docker volume `rental-data` |
-| Encryption key, login email and password | macOS Keychain |
+| Encryption key, login email and password, Tailscale auth key (optional) | macOS Keychain |
+| Tailscale machine registration (optional) | Docker volume `tailscale-state` |
 | HTTPS certificate and its private key | `~/.config/rental-agent/tls/` on your Mac |
 
 `memory/`, `artifacts/`, `reference/` and `data/` are excluded from git and from the Docker image.

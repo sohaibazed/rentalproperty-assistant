@@ -13,13 +13,6 @@ When a feature ships, delete its entry.
    Opus 5.5 (`RENTAL_AGENT_MODEL`).
 3. **Push alerts.** The Needs attention list shows only inside the app. Send the same items by
    email or webhook. Gmail access is read-only by design, so this needs a separate channel.
-4. **Phone access with Tailscale.** Blocked on the owner: install Tailscale on the Mac and the
-   phone, sign in to both, and enable HTTPS certificates. Then run `tailscale serve` for port 8080
-   (the app now serves HTTPS there with a self-signed certificate, so the target is
-   `https+insecure://localhost:8080`),
-   check sign-in, chat, attachments and confirm buttons through the new address (the Origin check
-   on POSTs may need a fix), check the chat at phone width, and document it in `SETUP.md`.
-
 ## Offered, not decided
 
 - **Connector for Claude chat or Duet.** An MCP server that exposes the jobs as tools, so they can

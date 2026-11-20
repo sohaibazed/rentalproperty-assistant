@@ -34,7 +34,38 @@ services:
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
 
+  # Optional access from your own devices through Tailscale. `make up` starts this only when
+  # a Tailscale auth key is in Keychain (`make init-tailscale`). It joins your tailnet as the
+  # machine "rental-agent" and serves the app at https://rental-agent.<tailnet>.ts.net with a
+  # real certificate. Only devices signed in to your tailnet can open it; nothing is public
+  # (Funnel is off in config/tailscale/serve.json) and no port is published.
+  tailscale:
+    image: tailscale/tailscale:v1.104.7
+    container_name: rental-agent-tailscale
+    profiles: ["tailscale"]
+    # Shares the app's network, so the app is 127.0.0.1:8080 from here.
+    network_mode: service:rental-agent
+    environment:
+      TS_AUTHKEY: file:/run/secrets/tailscale_authkey   # a file, not the key itself
+      TS_HOSTNAME: rental-agent
+      TS_STATE_DIR: /var/lib/tailscale                  # keeps the machine's identity across restarts
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_USERSPACE: "true"                              # no kernel networking, so no extra privileges
+    secrets:
+      - tailscale_authkey
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./config/tailscale:/config:ro
+    depends_on:
+      rental-agent:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
 secrets:
+  tailscale_authkey:
+    environment: TAILSCALE_AUTHKEY
   rental_secret_key:
     environment: RENTAL_SECRET_KEY
   rental_ui_password:
@@ -48,3 +79,4 @@ secrets:
 
 volumes:
   rental-data:
+  tailscale-state:
