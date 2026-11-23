@@ -8,8 +8,8 @@ A private web app that helps run a small rental-property LLC:
   facts, ask about your leases or local rental rules, and start jobs. Every change waits for
   you to click a confirm card.
 - **Dashboard**: a **Needs attention** list at the top: rent that is missing or short in
-  the last three months, the lease renewal deadline, the property-tax protest deadline, rows
-  waiting for review, and a failed email sync. The chat home page shows how many items there
+  the last three months, the lease renewal deadline, a security deposit to return after a
+  move-out, the property-tax protest deadline, rows waiting for review, and a failed email sync. The chat home page shows how many items there
   are.
 - **Review**: rent payments and expenses the email sync or a statement import wasn't sure
   about. Fix a row, confirm it, or remove it, here or by telling the chat what is wrong.
@@ -20,6 +20,12 @@ A private web app that helps run a small rental-property LLC:
   renewal opens 90 days before the term ends. Rent research then starts by itself, once.
   A generated extension is recorded as *awaiting signature*, and the Dashboard reminder stays
   until its signed copy is imported.
+- **Leases**: at the bottom, **Move-out and security deposit**. Record the day the tenants
+  move out and their forwarding address, list what you keep from the deposit (or attach
+  photos and repair invoices in the chat and ask it to draft the lines), write the itemized
+  letter as a PDF, then record the day you sent it. The date at the top is the last day to
+  send it: 30 days after the move-out. A recorded move-out stops that lease's renewal and
+  rent reminders. The app sends nothing and moves no money.
 - **Property tax**: the yearly protest for a property in Collin County. The date that
   matters now is at the top, then three steps (prepare the evidence, file the protest, go to
   the hearing) and every date of the tax year, with the last days to act in bold. Record the
@@ -355,6 +361,7 @@ property in Plano, Texas. Check them before relying on the output:
 | Time zone `America/Chicago` (scheduler's "today") | `TZ` in [`docker-compose.yml`](docker-compose.yml) | You're in another time zone |
 | Taxes on Schedule E (single-member LLC) | `tax-report` job | Your LLC files a partnership return (Form 1065); ask your CPA |
 | Property-tax protest: Collin County's forms, dates and open data | `tax-protest` job: [`src/rental_agent/jobs/tax_protest.py`](src/rental_agent/jobs/tax_protest.py) and [`src/rental_agent/collin_cad.py`](src/rental_agent/collin_cad.py) | Your property is in another county; the job refuses other counties |
+| Security deposit: refund and itemized list due 30 days after move-out (Texas Property Code 92.103); the letter cites section 92.104 for Texas properties | `DEADLINE_DAYS` and `letter_blocks` in [`src/rental_agent/move_out.py`](src/rental_agent/move_out.py) | You're outside Texas: check your state's deadline and have a lawyer review the letter |
 | Senders to read in Gmail | [`config/email_sources.toml`](config/email_sources.toml) | Always: set your bank and vendors |
 | Default models for jobs and the chat | [`config/models.toml`](config/models.toml) | You want lower cost (Sonnet or Haiku for jobs) or a different chat default |
 | Agent instructions | [`prompts/agent-prompts.md`](prompts/agent-prompts.md) | You want the assistant to behave differently |

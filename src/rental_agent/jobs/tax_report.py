@@ -19,7 +19,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-from rental_agent import db
+from rental_agent import db, move_out
 from rental_agent.config import Settings
 
 # Schedule E (Form 1040) Part I expense lines, in form order.
@@ -85,7 +85,10 @@ def build_report(
     expenses: list[db.ExpenseRow],
     leases: list[db.LeaseRow],
     today: date,
+    deposits_kept: list[tuple[date, Decimal, str]] = (),
 ) -> Report:
+    """deposits_kept: (the day, the amount, the tenants) for each security deposit, or part
+    of one, kept in `year`."""
     labels = {p.id: p.label for p in properties}
     rent_totals: dict[int | None, Decimal] = defaultdict(Decimal)
     expense_totals: dict[tuple[int | None, str], Decimal] = defaultdict(Decimal)
@@ -121,6 +124,11 @@ def build_report(
                           where,
                           f"{gap.month:%b %Y}: recorded ${gap.paid:,.2f} of ${gap.due:,.2f} "
                           "(late payment or not yet synced?)"))
+
+    for kept_on, amount, tenants in deposits_kept:
+        flags.append(Flag("deposit kept", kept_on, amount, tenants,
+                          "Security deposit kept from the tenant. It is rental income in the "
+                          "year it is kept, and it is not in the rent total: ask your CPA"))
 
     if not any(cat == "depreciation" for _, cat in expense_totals):
         flags.extend(depreciation_flags(year, properties))
@@ -291,6 +299,15 @@ def write_csv(report: Report, path: Path) -> None:
                         e.description or "", e.receipt_path or "", e.needs_review])
 
 
+def deposits_kept(conn, year: int) -> list[tuple[date, Decimal, str]]:
+    """Deposit money kept in `year`: counted on the day the letter was sent, or on the
+    move-out date while it is not sent."""
+    today = date.today()
+    return [(m.sent_on or m.move_out_date, m.kept, ", ".join(m.tenants) or "-")
+            for m in move_out.load(conn, today)
+            if m.kept and (m.sent_on or m.move_out_date).year == year]
+
+
 def run(settings: Settings, year: int) -> tuple[Report, Path, Path]:
     with db.connect(settings.db_url) as conn:
         report = build_report(
@@ -300,6 +317,7 @@ def run(settings: Settings, year: int) -> tuple[Report, Path, Path]:
             db.expenses_for_year(conn, year),
             db.leases_active_in_year(conn, year),
             today=date.today(),
+            deposits_kept=deposits_kept(conn, year),
         )
     out = settings.artifacts_dir / str(year) / "tax"
     xlsx = out / f"schedule-e-{year}.xlsx"

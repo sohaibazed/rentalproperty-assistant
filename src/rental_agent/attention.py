@@ -4,6 +4,7 @@ Each check compares what is recorded with today's date:
 - rent that is missing or short in a recent month;
 - a lease whose yearly extension is due, overdue, or that has run out;
 - a property-tax protest to file, from the district's notice to the filing deadline;
+- a security deposit to refund or account for after a move-out;
 - rows waiting on the Review page;
 - an email sync that failed;
 - a backup that failed, or no backup for several days.
@@ -16,7 +17,7 @@ from datetime import date, timedelta
 
 import psycopg
 
-from rental_agent import db, property_tax, renewal
+from rental_agent import db, move_out, property_tax, renewal
 from rental_agent.jobs import tax_report
 from rental_agent.jobs.lease import NOTICE_DAYS, long_date, money
 
@@ -114,6 +115,27 @@ def tax_items(conn: psycopg.Connection, today: date) -> list[Item]:
     return items
 
 
+def move_out_items(conn: psycopg.Connection, today: date) -> list[Item]:
+    """One item per move-out until the deposit letter is recorded as sent."""
+    items = []
+    for m in move_out.load(conn, today):
+        if m.step == "done":
+            continue
+        moved = f"{'moved' if m.move_out_date <= today else 'move'} out on {long_date(m.move_out_date)}"
+        if m.step == "address":
+            text = (f"the tenants {moved}. No forwarding address is recorded: the duty to "
+                    "refund the deposit starts when the tenant gives one in writing.")
+            level = "soon"
+        else:
+            text = (f"the tenants {moved}. Send the deposit refund and the itemized list by "
+                    f"{long_date(m.deadline)} ({m.time_left}). "
+                    + ("The letter is written; send it and record the day."
+                       if m.step == "send" else "Write the letter next."))
+            level = "now" if m.days_left <= move_out.URGENT_DAYS else "soon"
+        items.append(Item(level, f"{m.label}: {text}", "/leases#move-out", "Open Leases"))
+    return items
+
+
 def review_items(conn: psycopg.Connection) -> list[Item]:
     count = db.review_count(conn)
     if not count:
@@ -149,5 +171,6 @@ def backup_items(conn: psycopg.Connection, today: date) -> list[Item]:
 def items(conn: psycopg.Connection, today: date) -> list[Item]:
     """Everything that needs attention, most urgent first."""
     found = (sync_items(conn) + backup_items(conn, today) + rent_items(conn, today)
-             + renewal_items(conn, today) + tax_items(conn, today) + review_items(conn))
+             + move_out_items(conn, today) + renewal_items(conn, today) + tax_items(conn, today)
+             + review_items(conn))
     return sorted(found, key=lambda item: item.level != "now")

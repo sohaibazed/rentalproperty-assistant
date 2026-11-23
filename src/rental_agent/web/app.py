@@ -30,11 +30,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from rental_agent import attention, db, gmail, property_tax, renewal, runner
+from rental_agent import attention, db, gmail, move_out, property_tax, renewal, runner
 from rental_agent.config import MODELS, artifacts_dir, env_or_file, reference_dir
 from rental_agent.jobs import rent_research
 from rental_agent.jobs.lease import NOTICE_DAYS, long_date
-from rental_agent.web import chat_views, review_views
+from rental_agent.web import chat_views, move_out_views, review_views
 from rental_agent.web.jobs import JobManager, next_sync_date, scheduler
 from rental_agent.web.secrets import GMAIL_TOKEN, SECRETS, SecretStore
 
@@ -175,6 +175,7 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
     chat_views.register(app, store=store, jobs=manager, chats=chats, page=page, flash=flash,
                         connect=connect, render_markdown=render_markdown)
     review_views.register(app, page=page, flash=flash, connect=connect)
+    move_out_views.register(app, flash=flash, connect=connect)
 
     # --- Dashboard ----------------------------------------------------------------------------
 
@@ -338,11 +339,15 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
     @app.get("/leases", response_class=HTMLResponse)
     async def leases_page(request: Request):
         conn, db_error = connect()
-        rows, props = [], []
+        rows, props, move_outs, candidates = [], [], [], []
         if conn:
             with conn:
                 rows, props = db.leases_list(conn), db.properties_list(conn)
-        return page(request, "leases.html", rows=rows, props=props, db_error=db_error)
+                move_outs = move_out.load(conn, date.today())
+                candidates = move_out.candidates(conn)
+        return page(request, "leases.html", rows=rows, props=props, db_error=db_error,
+                    move_outs=move_outs, candidates=candidates,
+                    deadline_days=move_out.DEADLINE_DAYS, today=date.today())
 
     @app.get("/renewal", response_class=HTMLResponse)
     async def renewal_page(request: Request):

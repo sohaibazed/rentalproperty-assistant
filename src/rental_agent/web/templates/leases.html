@@ -22,11 +22,143 @@
     <tbody>{% for l in rows %}<tr>
       <td>{{ l.address }}</td>
       <td>{{ l.start_date }} → {{ l.end_date }}
-        {% if l.awaiting_signature %}<a class="pill" href="/renewal">awaiting signature</a>{% endif %}</td><td class="r">{{ l.monthly_rent | money }}</td>
+        {% if l.awaiting_signature %}<a class="pill" href="/renewal">awaiting signature</a>{% endif %}
+        {% for m in move_outs if m.lease_id == l.id %}<a class="pill" href="#move-out">moved out {{ m.move_out_date }}</a>{% endfor %}</td><td class="r">{{ l.monthly_rent | money }}</td>
       <td>{{ l.tenants or "-" }}</td>
       <td>{% if l.pdf_path %}<a href="/files/{{ l.pdf_path }}">PDF</a>{% endif %}
           {% if l.docx_path %}<a href="/files/{{ l.docx_path }}">Word</a>{% endif %}</td>
     </tr>{% else %}<tr><td colspan="5" class="muted">No leases yet.</td></tr>{% endfor %}</tbody>
   </table>
 </section>
+
+{% macro badge(done, next) %}
+  {% if done %}<span class="pill success">done</span>{% elif next %}<span class="pill running">next</span>{% endif %}
+{% endmacro %}
+
+<h2 id="move-out">Move-out and security deposit</h2>
+<p class="muted">When tenants leave, Texas law gives you {{ deadline_days }} days from the day they move out to refund the
+  deposit and, if you keep any of it, to send an itemized list of the deductions. The duty starts once the tenant gives a
+  forwarding address in writing. This page sends nothing and moves no money: you mail the letter and the refund.</p>
+{% for m in move_outs %}
+<section class="card">
+  <h2>{{ m.label }}: {{ m.tenants | join(", ") or "tenants" }}</h2>
+  <div class="deadline{{ ' late' if m.step != 'done' and m.days_left < 0 and m.forwarding_address }}">
+    {% if m.step == "done" %}
+      <span class="when">{{ m.sent_on | long_date }}</span>
+      <span class="what">The letter and the refund were sent. {{ m.refund | money }} refunded, {{ m.kept | money }} kept.</span>
+    {% else %}
+      <span class="when">{{ m.deadline | long_date }}</span>
+      {% if m.forwarding_address %}<span class="pill running">{{ m.time_left }}</span>{% endif %}
+      <span class="what">{% if m.forwarding_address %}Last day to send the refund and the itemized list: {{ deadline_days }} days after the
+        move-out on {{ m.move_out_date | long_date }}. A postmark on or before this day counts.
+        {% else %}{{ deadline_days }} days after the move-out on {{ m.move_out_date | long_date }}. No forwarding address is recorded yet;
+        the duty to refund starts when the tenant gives one in writing.{% endif %}</span>
+    {% endif %}
+  </div>
+
+  <ol class="steps">
+    <li class="{{ 'done' if m.forwarding_address else 'next' }}">
+      <h3>1. Move-out details {{ badge(m.forwarding_address, m.step == "address") }}</h3>
+      <p>Moved out {{ m.move_out_date | long_date }}. Deposit held {{ m.deposit | money }}.
+        {% if m.forwarding_address %}Forwarding address: {{ m.forwarding_address.replace("\n", ", ") }}.
+        {% else %}<span class="muted">Ask the tenant for a forwarding address in writing, then record it here.</span>{% endif %}</p>
+      {% if m.step != "done" %}
+      <details>
+        <summary>Change the details</summary>
+        <form method="post" action="/leases/{{ m.lease_id }}/move-out">
+          <label for="mo-date-{{ m.lease_id }}">Move-out date</label>
+          <input type="date" id="mo-date-{{ m.lease_id }}" name="move_out_date" value="{{ m.move_out_date }}" required>
+          <label for="mo-deposit-{{ m.lease_id }}">Deposit held</label>
+          <input type="number" id="mo-deposit-{{ m.lease_id }}" name="deposit" value="{{ m.deposit }}" min="0" step="0.01" required>
+          <label for="mo-address-{{ m.lease_id }}">Forwarding address</label>
+          <textarea id="mo-address-{{ m.lease_id }}" name="forwarding_address" rows="3">{{ m.forwarding_address or "" }}</textarea>
+          <button class="secondary">Save</button>
+        </form>
+        <form method="post" action="/leases/{{ m.lease_id }}/move-out/cancel">
+          <p class="small muted">Recorded by mistake? Cancelling removes the move-out and its deductions, and turns the
+            lease's renewal and rent reminders back on.</p>
+          <button class="secondary">Cancel this move-out</button>
+        </form>
+      </details>
+      {% endif %}
+    </li>
+    <li class="{{ 'done' if m.letter_path or m.step == 'done' }}">
+      <h3>2. Deductions</h3>
+      {% if m.deductions %}
+      <table>
+        <thead><tr><th>Deduction</th><th class="r">Amount</th><th></th></tr></thead>
+        <tbody>{% for d in m.deductions %}<tr>
+          <td>{{ d.description }}</td><td class="r">{{ d.amount | money }}</td>
+          <td>{% if m.step != "done" %}<form method="post" action="/leases/{{ m.lease_id }}/move-out/deductions/{{ d.id }}/remove" class="inline">
+            <button class="secondary" aria-label="Remove {{ d.description }}">Remove</button></form>{% endif %}</td>
+        </tr>{% endfor %}
+        <tr><td><strong>Total deductions</strong></td><td class="r"><strong>{{ m.total_deductions | money }}</strong></td><td></td></tr>
+        <tr><td><strong>{{ "Still owed by the tenant" if m.owed else "Refund to the tenant" }}</strong></td>
+          <td class="r"><strong>{{ (m.owed if m.owed else m.refund) | money }}</strong></td><td></td></tr></tbody>
+      </table>
+      {% else %}
+        <p class="muted">No deductions: the full deposit of {{ m.deposit | money }} goes back to the tenant.</p>
+      {% endif %}
+      {% if m.step != "done" %}
+      <form method="post" action="/leases/{{ m.lease_id }}/move-out/deductions" class="inline">
+        <label for="ded-text-{{ m.lease_id }}">Deduction</label>
+        <input id="ded-text-{{ m.lease_id }}" name="description" maxlength="200" placeholder="Repair hole in bedroom door" required>
+        <label for="ded-amount-{{ m.lease_id }}">Amount</label>
+        <input type="number" id="ded-amount-{{ m.lease_id }}" name="amount" min="0.01" step="0.01" required>
+        <button class="secondary">Add</button>
+      </form>
+      <p class="small muted">Deduct only damage and charges the tenant owes under the lease, never normal wear and tear.
+        Or attach move-out photos and repair invoices in the <a href="/">chat</a> and ask it to draft the lines.</p>
+      {% endif %}
+    </li>
+    <li class="{{ 'done' if m.letter_path or m.step == 'done' else 'next' if m.step == 'letter' }}">
+      <h3>3. Write the letter {{ badge(m.letter_path or m.step == "done", m.step == "letter") }}</h3>
+      {% if m.letter_path %}
+        <p><a href="/files/{{ m.letter_path }}">Open the letter (PDF)</a>. Check it and sign it.</p>
+      {% elif m.step != "done" %}
+        <p class="muted">The letter lists the deposit, each deduction and the refund. A change to the details or the
+          deductions means writing it again.</p>
+      {% endif %}
+      {% if m.step != "done" %}
+      <form method="post" action="/leases/{{ m.lease_id }}/move-out/letter">
+        <button {% if m.letter_path %}class="secondary"{% endif %}>{{ "Write it again" if m.letter_path else "Write the letter" }}</button>
+      </form>
+      {% endif %}
+    </li>
+    <li class="{{ 'done' if m.step == 'done' else 'next' if m.step == 'send' }}">
+      <h3>4. Send it {{ badge(m.step == "done", m.step == "send") }}</h3>
+      {% if m.step == "done" %}
+        <p>Sent on {{ m.sent_on | long_date }}.</p>
+      {% else %}
+        <p>Mail the signed letter and the refund to the forwarding address by <strong>{{ m.deadline | long_date }}</strong>,
+          and keep proof of the mailing date. Then record the day here.</p>
+      {% endif %}
+      <form method="post" action="/leases/{{ m.lease_id }}/move-out/sent" class="inline">
+        <label for="sent-{{ m.lease_id }}">Sent on</label>
+        <input type="date" id="sent-{{ m.lease_id }}" name="sent_on" value="{{ m.sent_on or '' }}" max="{{ today }}">
+        <button class="secondary">Save</button>
+      </form>
+    </li>
+  </ol>
+</section>
+{% endfor %}
+{% for c in candidates %}
+<section class="card">
+  <h2>{{ c.label }}</h2>
+  <details>
+    <summary>Record a move-out for {{ c.tenants | join(", ") or "the tenants" }} (term ends {{ c.end_date }})</summary>
+    <form method="post" action="/leases/{{ c.lease_id }}/move-out">
+      <label for="mo-date-{{ c.lease_id }}">Move-out date</label>
+      <input type="date" id="mo-date-{{ c.lease_id }}" name="move_out_date" required>
+      <label for="mo-deposit-{{ c.lease_id }}">Deposit held</label>
+      <input type="number" id="mo-deposit-{{ c.lease_id }}" name="deposit" value="{{ c.deposit if c.deposit is not none else '' }}" min="0" step="0.01" required>
+      <label for="mo-address-{{ c.lease_id }}">Forwarding address (when the tenant gives it)</label>
+      <textarea id="mo-address-{{ c.lease_id }}" name="forwarding_address" rows="3"></textarea>
+      <p class="small muted">Recording a move-out stops this lease's renewal reminder and rent research, and rent is no
+        longer expected after the move-out date.</p>
+      <button>Record the move-out</button>
+    </form>
+  </details>
+</section>
+{% endfor %}
 {% endblock %}

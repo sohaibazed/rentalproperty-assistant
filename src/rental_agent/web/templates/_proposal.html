@@ -155,6 +155,35 @@
         </div>
       </form>
     {% endif %}
+  {% elif p.kind == "deductions" %}
+    <h4>Deposit deductions: {{ p.data.label }}</h4>
+    <p class="small muted">Deposit held {{ "${:,.2f}".format(p.data.deposit | float) }}{% if p.data.tenants %} · {{ p.data.tenants | join(", ") }}{% endif %}</p>
+    {% if p.data.reason %}<p class="small muted">{{ p.data.reason }}</p>{% endif %}
+    {% if p.status == "pending" %}
+      <form method="post" action="{{ action }}">
+        <div class="table-scroll"><table class="small">
+          <thead><tr><th>Add</th><th>Deduction</th><th>Amount</th><th>Based on</th></tr></thead>
+          <tbody>
+          {% for line in p.data.lines %}
+            <tr>
+              <td><input type="checkbox" name="row" value="{{ line.id }}" aria-label="Add deduction {{ loop.index }}" checked></td>
+              <td>{{ line.description }}</td>
+              <td class="num">{{ "$%.2f" % (line.amount | float) }}</td>
+              <td>{{ line.basis or "" }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table></div>
+        <p class="small muted">Add puts each ticked line on the move-out's list on the Leases page. Deduct only damage and
+          charges the tenant owes under the lease, never normal wear and tear.</p>
+        <div class="row">
+          <button name="action" value="confirm">Add ticked lines</button>
+          <button name="action" value="dismiss" class="secondary" formnovalidate>Dismiss</button>
+        </div>
+      </form>
+    {% else %}
+      <p class="small">{% for line in p.data.lines if line.saved %}{{ line.description }} {{ "$%.2f" % (line.amount | float) }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+    {% endif %}
   {% elif p.kind == "memory" %}
     <h4>Add to memory</h4>
     {% if p.status == "pending" %}

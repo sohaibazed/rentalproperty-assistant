@@ -49,12 +49,12 @@ class Renewal:
 
 
 def load(conn: psycopg.Connection, today: date) -> list[Renewal]:
-    """One renewal per property that has a signed lease."""
+    """One renewal per property that has a signed lease and no move-out recorded for it."""
     found = []
     for prop in db.load_properties(conn):
         current = db.latest_lease(conn, prop.id)
-        if current is None:
-            continue
+        if current is None or db.move_outs(conn, current.id):
+            continue        # no lease, or its tenants are moving out: nothing to renew
         draft = db.draft_lease(conn, prop.id)
         next_start, next_end = default_term(current.end_date)
         sign_by = current.end_date - timedelta(days=NOTICE_DAYS)

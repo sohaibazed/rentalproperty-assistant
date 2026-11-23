@@ -89,6 +89,32 @@ create table if not exists lease_tenants (
   primary key (lease_id, tenant_id)
 );
 
+-- The end of a tenancy: the day the tenants move out, and what happens to the security
+-- deposit. One row per lease term, the last signed one. The tax report and the reminders stop
+-- counting rent after move_out_date, and the lease's renewal stops.
+create table if not exists move_outs (
+  lease_id            bigint primary key references leases(id),
+  move_out_date       date not null,          -- the day the tenants surrender the premises
+  forwarding_address  text,                   -- given by the tenant in writing; null until then
+  deposit             numeric(10,2) not null check (deposit >= 0),   -- the deposit held
+  letter_path         text,                   -- the itemized letter; null after any change to it
+  sent_on             date,                   -- the day the refund and the letter were sent
+  cancelled_at        timestamptz,            -- set when a move-out was recorded by mistake
+  created_at          timestamptz not null default now()
+);
+
+-- Amounts kept from the deposit, one per line of the itemized letter. A removed line stays,
+-- with removed_at set: the app never deletes.
+create table if not exists deposit_deductions (
+  id           bigint generated always as identity primary key,
+  lease_id     bigint not null references move_outs(lease_id),
+  description  text not null,
+  amount       numeric(10,2) not null check (amount > 0),
+  removed_at   timestamptz,
+  created_at   timestamptz not null default now()
+);
+create index if not exists deposit_deductions_lease_id on deposit_deductions (lease_id);
+
 create table if not exists rent_payments (
   id                 bigint generated always as identity primary key,
   lease_id           bigint references leases(id),     -- null until matched
@@ -241,11 +267,11 @@ grant usage on type schedule_e_category to rental_agent;
 grant select, insert on
   llcs, properties, tenants, leases, lease_tenants, rent_payments, expenses, rent_research,
   tax_protests, email_ingest_log, sync_runs, job_runs, chats, chat_messages, reference_documents,
-  claude_usage
+  claude_usage, move_outs, deposit_deductions
   to rental_agent;
 grant update on
   llcs, properties, leases, rent_payments, expenses, rent_research, tax_protests, sync_runs,
-  job_runs, chats, chat_messages, reference_documents
+  job_runs, chats, chat_messages, reference_documents, move_outs, deposit_deductions
   to rental_agent;  -- no DELETE anywhere
 
 -- Row-level security on every table. Only rental_agent gets a policy, so Supabase's public
@@ -256,7 +282,8 @@ begin
   foreach t in array array[
     'llcs', 'properties', 'tenants', 'leases', 'lease_tenants', 'rent_payments', 'expenses',
     'rent_research', 'tax_protests', 'email_ingest_log', 'sync_runs', 'job_runs', 'chats',
-    'chat_messages', 'reference_documents', 'claude_usage'
+    'chat_messages', 'reference_documents', 'claude_usage', 'move_outs',
+    'deposit_deductions'
   ] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists rental_agent_all on %I', t);

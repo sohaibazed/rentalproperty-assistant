@@ -187,10 +187,14 @@ def expenses_for_year(conn: psycopg.Connection, year: int) -> list[ExpenseRow]:
 
 def leases_active_in_year(conn: psycopg.Connection, year: int) -> list[LeaseRow]:
     rows = conn.execute(
-        """select id, property_id, start_date, end_date, monthly_rent
-           from leases
-           where start_date <= make_date(%s, 12, 31) and end_date >= make_date(%s, 1, 1)
-           order by property_id, start_date""",
+        # A term ends early on the day its tenants move out: no rent is due after it.
+        """select l.id, l.property_id, l.start_date,
+                  least(l.end_date, m.move_out_date) as end_date, l.monthly_rent
+           from leases l
+           left join move_outs m on m.lease_id = l.id and m.cancelled_at is null
+           where l.start_date <= make_date(%s, 12, 31)
+             and least(l.end_date, m.move_out_date) >= make_date(%s, 1, 1)
+           order by l.property_id, l.start_date""",
         (year, year),
     ).fetchall()
     return [LeaseRow(*r) for r in rows]
@@ -672,6 +676,79 @@ def leases_list(conn: psycopg.Connection) -> list[dict]:
                            left join lease_tenants lt on lt.lease_id = l.id
                            left join tenants t on t.id = lt.tenant_id
                            group by l.id, p.address order by l.start_date desc""")
+
+
+# --- Move-outs and security deposits ------------------------------------------------------
+
+
+def move_outs(conn: psycopg.Connection, lease_id: int | None = None) -> list[dict]:
+    """Recorded move-outs that are not cancelled, newest first; or only the one for lease_id."""
+    return _dicts(conn, """
+        select m.lease_id, m.move_out_date, m.forwarding_address, m.deposit, m.letter_path,
+               m.sent_on, l.property_id, l.start_date, l.end_date, p.address, p.unit, p.city,
+               p.state, p.zip, coalesce(p.landlord_names, '{}') as landlord_names,
+               coalesce(array_agg(t.full_name order by t.id) filter (where t.id is not null),
+                        '{}') as tenants
+        from move_outs m
+        join leases l on l.id = m.lease_id
+        join properties p on p.id = l.property_id
+        left join lease_tenants lt on lt.lease_id = l.id
+        left join tenants t on t.id = lt.tenant_id
+        where m.cancelled_at is null and (%s::bigint is null or m.lease_id = %s)
+        group by m.lease_id, l.id, p.id
+        order by m.move_out_date desc, m.lease_id desc""", (lease_id, lease_id))
+
+
+def save_move_out(conn: psycopg.Connection, lease_id: int, *, move_out_date: date,
+                  forwarding_address: str | None, deposit: Decimal) -> None:
+    """Record a move-out or change its details. A letter written before the change is stale."""
+    conn.execute(
+        """insert into move_outs (lease_id, move_out_date, forwarding_address, deposit)
+           values (%s, %s, %s, %s)
+           on conflict (lease_id) do update set
+             move_out_date = excluded.move_out_date,
+             forwarding_address = excluded.forwarding_address,
+             deposit = excluded.deposit, letter_path = null, cancelled_at = null""",
+        (lease_id, move_out_date, forwarding_address, deposit))
+
+
+def cancel_move_out(conn: psycopg.Connection, lease_id: int) -> None:
+    """Undo a move-out recorded by mistake. Its deduction lines go with it."""
+    conn.execute("""update move_outs set cancelled_at = now(), letter_path = null, sent_on = null
+                    where lease_id = %s""", (lease_id,))
+    conn.execute("""update deposit_deductions set removed_at = now()
+                    where lease_id = %s and removed_at is null""", (lease_id,))
+
+
+def deposit_deductions(conn: psycopg.Connection, lease_id: int) -> list[dict]:
+    return _dicts(conn, """select id, description, amount from deposit_deductions
+                           where lease_id = %s and removed_at is null order by id""",
+                  (lease_id,))
+
+
+def add_deposit_deduction(conn: psycopg.Connection, lease_id: int, description: str,
+                          amount: Decimal) -> None:
+    conn.execute("insert into deposit_deductions (lease_id, description, amount) "
+                 "values (%s, %s, %s)", (lease_id, description, amount))
+    set_move_out_letter(conn, lease_id, None)
+
+
+def remove_deposit_deduction(conn: psycopg.Connection, lease_id: int, deduction_id: int) -> bool:
+    removed = conn.execute(
+        """update deposit_deductions set removed_at = now()
+           where id = %s and lease_id = %s and removed_at is null""",
+        (deduction_id, lease_id)).rowcount == 1
+    if removed:
+        set_move_out_letter(conn, lease_id, None)
+    return removed
+
+
+def set_move_out_letter(conn: psycopg.Connection, lease_id: int, path: str | None) -> None:
+    conn.execute("update move_outs set letter_path = %s where lease_id = %s", (path, lease_id))
+
+
+def set_move_out_sent(conn: psycopg.Connection, lease_id: int, sent_on: date | None) -> None:
+    conn.execute("update move_outs set sent_on = %s where lease_id = %s", (sent_on, lease_id))
 
 
 def properties_list(conn: psycopg.Connection) -> list[dict]:

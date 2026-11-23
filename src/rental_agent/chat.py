@@ -42,6 +42,7 @@ from rental_agent import (
     db,
     doc_import,
     memory,
+    move_out,
     prompts,
     property_facts,
     runner,
@@ -372,6 +373,51 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
                 return _err(f"Not proposed: {exc}")
         return propose("property", card)
 
+    @tool("list_move_outs", "Recorded move-outs with the lease id, the move-out date, the "
+          "security deposit held, the deductions so far, the refund and the day the deposit "
+          "letter is due.", none_schema)
+    async def list_move_outs(args):
+        with connect() as conn:
+            return _rows([{
+                "lease_id": m.lease_id, "property": m.label, "tenants": m.tenants,
+                "move_out_date": m.move_out_date, "deposit": m.deposit,
+                "forwarding_address": m.forwarding_address,
+                "deductions": [{"description": d.description, "amount": d.amount}
+                               for d in m.deductions],
+                "refund": m.refund, "letter_due": m.deadline, "letter_sent_on": m.sent_on,
+            } for m in move_out.load(conn, date.today())])
+
+    @tool("propose_deposit_deductions", "Show the owner a card of deductions from a security "
+          "deposit, for the itemized letter after a move-out. lease_id comes from "
+          "list_move_outs. Each line is one damage or charge the tenant is liable for under "
+          "the lease, with its cost; never normal wear and tear. Does not change anything.", {
+              "type": "object",
+              "properties": {
+                  "lease_id": {"type": "integer"},
+                  "lines": {"type": "array", "items": {
+                      "type": "object",
+                      "properties": {
+                          "description": {"type": "string", "description":
+                                          "what the letter will say, e.g. 'Repair hole in "
+                                          "bedroom door'"},
+                          "amount": {"type": "number", "description": "USD, positive"},
+                          "basis": {"type": "string", "description":
+                                    "where the amount comes from, e.g. 'invoice from ABC "
+                                    "Handyman, attached'; shown on the card only"},
+                      },
+                      "required": ["description", "amount", "basis"]}},
+                  "reason": {"type": "string", "description": "one short sentence, shown on "
+                             "the card"},
+              },
+              "required": ["lease_id", "lines", "reason"]})
+    async def propose_deposit_deductions(args):
+        with connect() as conn:
+            try:
+                card = move_out.propose(conn, args, date.today())
+            except ValueError as exc:
+                return _err(f"Not proposed: {exc}")
+        return propose("deductions", card)
+
     @tool("propose_memory", "Show the owner a card to add one standing rule to memory.md.",
           {"type": "object", "properties": {"rule": {"type": "string"}}, "required": ["rule"]})
     async def propose_memory(args):
@@ -383,7 +429,8 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
     return [year_summary, list_rent_payments, list_expenses, list_leases, list_rent_research,
             list_properties, list_job_runs, list_reference_documents, read_reference_document,
             propose_expense, propose_job, propose_document_import, propose_statement_import,
-            propose_correction, propose_property_update, propose_memory]
+            propose_correction, propose_property_update, list_move_outs,
+            propose_deposit_deductions, propose_memory]
 
 
 def build_tools(settings: Settings, proposals: list[dict[str, Any]], attachments: set[str]):

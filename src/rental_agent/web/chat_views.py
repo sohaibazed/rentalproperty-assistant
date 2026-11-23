@@ -20,6 +20,7 @@ from rental_agent import (
     db,
     doc_import,
     memory,
+    move_out,
     prompts,
     property_facts,
     runner,
@@ -278,6 +279,11 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
                     # The owner may edit the card before saving; the form is checked again.
                     prop["result"] = property_facts.save(conn, prop["data"]["property_id"], form,
                                                          datetime.now().date())
+                    prop["status"] = "done"
+                elif prop["kind"] == "deductions":
+                    prop["result"] = move_out.apply(conn, prop["data"],
+                                                    set(raw_form.getlist("row")),
+                                                    datetime.now().date())
                     prop["status"] = "done"
                 elif prop["kind"] == "job":
                     options = {k: ("on" if v is True else "" if v in (None, False) else str(v))
