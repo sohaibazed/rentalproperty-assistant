@@ -33,6 +33,7 @@ ENV PATH=/app/.venv/bin:$PATH \
     RENTAL_ARTIFACTS_DIR=/app/artifacts \
     RENTAL_REFERENCE_DIR=/app/reference \
     RENTAL_EMAIL_SOURCES=/app/config/email_sources.toml \
+    RENTAL_MODELS_FILE=/app/config/models.toml \
     RENTAL_MEMORY_FILE=/app/memory/memory.md
 
 EXPOSE 8080

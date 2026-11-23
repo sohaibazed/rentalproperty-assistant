@@ -105,7 +105,7 @@ def test_save_dry_run_from_the_run_page(seeded, tmp_path, monkeypatch):
     store = SecretStore(tmp_path / "s.enc", Fernet.generate_key().decode())
     store.set("RENTAL_DB_URL", DB)
     with psycopg.connect(ADMIN, autocommit=True) as conn:
-        conn.execute("truncate job_runs restart identity")
+        conn.execute("truncate claude_usage, job_runs restart identity")
     origin = {"origin": "http://testserver"}
     app = create_app(store=store, manager=JobManager(store, run_fn=runner.run_job),
                      chats=ChatManager(store))

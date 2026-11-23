@@ -1,0 +1,13 @@
+# Default Claude models. Not secret: safe to commit.
+# Read when a job starts and when the chat page loads, so an edit needs no restart.
+#
+# Allowed values:
+#   claude-opus-5-5     most capable, highest cost
+#   claude-sonnet-5-5   balanced
+#   claude-haiku-5-5    fastest, lowest cost
+
+# Every job that calls Claude: sync-email, research-rent, tax-protest.
+jobs = "claude-opus-5-5"
+
+# The model a new chat starts on. The chat's model menu can still change it per chat.
+chat = "claude-sonnet-5-5"

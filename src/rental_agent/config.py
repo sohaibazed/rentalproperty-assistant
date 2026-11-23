@@ -13,6 +13,13 @@ from pathlib import Path
 # Secret names shared by the environment and the web app's secrets store.
 CLAUDE_SECRET_NAMES = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
 
+# Model id -> the name shown in the chat's model menu.
+MODELS = {
+    "claude-opus-5-5": "Opus 5.5",
+    "claude-sonnet-5-5": "Sonnet 5.5",
+    "claude-haiku-5-5": "Haiku 5.5",
+}
+
 
 def env_or_file(name: str) -> str | None:
     """Read NAME from the environment, or from the file named by NAME_FILE (Docker secrets)."""
@@ -49,8 +56,28 @@ def gmail_token_path() -> Path:
 
 
 @dataclass(frozen=True)
+class DefaultModels:
+    jobs: str      # every job that calls Claude
+    chat: str      # what a new chat starts on
+
+
+def load_default_models() -> DefaultModels:
+    """Read config/models.toml (RENTAL_MODELS_FILE). Read on every call, so an edit applies to
+    the next job or chat without a restart."""
+    path = _path("RENTAL_MODELS_FILE", "./config/models.toml")
+    try:
+        data = tomllib.loads(path.read_text())
+    except FileNotFoundError:
+        raise RuntimeError(f"Default models file not found: {path}") from None
+    for key in ("jobs", "chat"):
+        if data.get(key) not in MODELS:
+            raise ValueError(f"{path.name}: {key} must be one of {', '.join(MODELS)}")
+    return DefaultModels(jobs=data["jobs"], chat=data["chat"])
+
+
+@dataclass(frozen=True)
 class Settings:
-    model: str
+    model: str                                                 # the jobs' model
     db_url: str
     artifacts_dir: Path
     reference_dir: Path
@@ -74,7 +101,7 @@ def load_settings(secrets: Mapping[str, str] | None = None) -> Settings:
         gmail_token = gmail_token_path().read_text()
 
     return Settings(
-        model=os.environ.get("RENTAL_AGENT_MODEL", "claude-opus-5-5"),
+        model=load_default_models().jobs,
         db_url=db_url,
         artifacts_dir=artifacts_dir(),
         reference_dir=reference_dir(),

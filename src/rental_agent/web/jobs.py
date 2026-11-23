@@ -67,6 +67,9 @@ class JobManager:
         capture = _Capture()
         root = logging.getLogger()
         root.addHandler(capture)
+        # This task has its own context, and to_thread copies it into the job's thread, so
+        # every Claude call the job makes is logged against this run.
+        db.current_job_run.set(run_id)
         try:
             # Own thread + event loop: jobs make blocking calls (Gmail, Postgres)
             # that would otherwise freeze the web pages while they run.

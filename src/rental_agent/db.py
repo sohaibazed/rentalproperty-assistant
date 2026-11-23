@@ -1,6 +1,7 @@
 """Postgres access for the least-privilege rental_agent role."""
 
 import logging
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -496,9 +497,19 @@ def _dicts(conn: psycopg.Connection, sql: str, params: tuple = ()) -> list[dict]
 
 
 def job_runs(conn: psycopg.Connection, limit: int = 50, job: str | None = None) -> list[dict]:
-    return _dicts(conn, """select id, job, trigger, status, started_at, finished_at, summary
+    """Newest first. cost_usd is null for a run that made no Claude call."""
+    return _dicts(conn, """select id, job, trigger, status, started_at, finished_at, summary,
+                                  (select sum(cost_usd) from claude_usage
+                                   where job_run_id = job_runs.id) as cost_usd
                            from job_runs where %s::text is null or job = %s
                            order by id desc limit %s""", (job, job, limit))
+
+
+def job_run_cost(conn: psycopg.Connection, run_id: int) -> dict:
+    """What one run's Claude calls cost so far: cost (null if none), calls and the models."""
+    return _dicts(conn, """select sum(cost_usd) as cost, count(*) as calls,
+                                  coalesce(array_agg(distinct model), '{}') as models
+                           from claude_usage where job_run_id = %s""", (run_id,))[0]
 
 
 def mark_research_saved(conn: psycopg.Connection, run_id: int, report: str, note: str) -> None:
@@ -751,14 +762,21 @@ def set_message_proposals(conn: psycopg.Connection, msg_id: int, proposals_json:
                  (proposals_json, msg_id))
 
 
+# The job_runs id of the job running in this context; the web app's JobManager sets it. None
+# for the chat and for jobs started from the command line, which have no job_runs row.
+current_job_run: ContextVar[int | None] = ContextVar("current_job_run", default=None)
+
+
 def record_claude_cost(db_url: str, source: str, model: str, cost_usd: float | None) -> None:
-    """Log one Claude call's cost. Best effort: a logging failure never fails the caller."""
+    """Log one Claude call's cost, tied to the running job if there is one. Best effort: a
+    logging failure never fails the caller."""
     if cost_usd is None:
         return
     try:
         with connect(db_url) as conn:
-            conn.execute("insert into claude_usage (source, model, cost_usd) values (%s, %s, %s)",
-                         (source, model, cost_usd))
+            conn.execute("""insert into claude_usage (source, model, cost_usd, job_run_id)
+                            values (%s, %s, %s, %s)""",
+                         (source, model, cost_usd, current_job_run.get()))
     except psycopg.Error as exc:
         log.warning("Could not record Claude cost: %s", exc)
 

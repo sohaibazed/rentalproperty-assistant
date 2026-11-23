@@ -47,15 +47,8 @@ from rental_agent import (
     runner,
     statement_import,
 )
-from rental_agent.config import Settings, data_dir
+from rental_agent.config import MODELS, Settings, data_dir
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
-
-MODELS = {
-    "claude-opus-5-5": "Opus 5.5",
-    "claude-sonnet-5-5": "Sonnet 5.5",
-    "claude-haiku-5-5": "Haiku 5.5",
-}
-DEFAULT_MODEL = "claude-sonnet-5-5"
 
 # Skills for the chat live in a local plugin; .claude/skills links to the same files so
 # Claude Code in this repo uses them too.

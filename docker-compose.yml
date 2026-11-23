@@ -21,7 +21,7 @@ services:
       - rental-data:/data              # encrypted secrets file
       - ./artifacts:/app/artifacts     # reports, leases, receipts (shared with your Mac)
       - ./reference:/app/reference:ro
-      - ./config:/app/config:ro        # email_sources.toml
+      - ./config:/app/config:ro        # email_sources.toml, models.toml
       - ./memory:/app/memory           # memory.md: your standing rules (editable on the Memory page)
       - ./prompts:/app/prompts         # agent-prompts.md (editable on the Prompts page)
     # Not read_only: Compose can only create secrets from environment variables when the

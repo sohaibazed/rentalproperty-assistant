@@ -8,10 +8,7 @@ When a feature ships, delete its entry.
 1. **Prompt tests.** A small saved set of emails and statements with expected results, run by
    `make eval`, to catch a bad edit made on the Prompts page. Today the only check is that each
    prompt loads.
-2. **Cost per job run.** The monthly cost card exists, but cost is logged by source (chat, email
-   extraction, research) in `claude_usage` and is not tied to a row in `job_runs`. Jobs default to
-   Opus 5.5 (`RENTAL_AGENT_MODEL`).
-3. **Push alerts.** The Needs attention list shows only inside the app. Send the same items by
+2. **Push alerts.** The Needs attention list shows only inside the app. Send the same items by
    email or webhook. Gmail access is read-only by design, so this needs a separate channel.
 ## Offered, not decided
 

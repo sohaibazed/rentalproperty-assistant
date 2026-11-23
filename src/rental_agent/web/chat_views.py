@@ -25,7 +25,7 @@ from rental_agent import (
     runner,
     statement_import,
 )
-from rental_agent.config import artifacts_dir, load_settings
+from rental_agent.config import artifacts_dir, load_default_models, load_settings
 from rental_agent.extract import SCHEDULE_E_CATEGORIES
 from rental_agent.web.jobs import JobManager
 from rental_agent.web.secrets import SecretStore
@@ -133,7 +133,7 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
         memory_rules = sum(1 for line in memory.read().splitlines() if line.lstrip().startswith("- "))
         return page(request, "chat.html", chat=current, messages=messages, chats=chat_list,
                     search=search or "", db_error=db_error, models=chat.MODELS,
-                    model=(current or {}).get("model") or chat.DEFAULT_MODEL,
+                    model=(current or {}).get("model") or load_default_models().chat,
                     live=chats.busy(chat_id) if chat_id else False, properties=properties,
                     categories=SCHEDULE_E_CATEGORIES, memory_rules=memory_rules,
                     attention_count=attention_count,
@@ -151,7 +151,7 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
     async def send(request: Request):
         form = await request.form()
         text = str(form.get("message") or "").strip()
-        model = str(form.get("model") or chat.DEFAULT_MODEL)
+        model = str(form.get("model") or load_default_models().chat)
         chat_id = int(form["chat_id"]) if form.get("chat_id") else None
         uploads = [f for f in form.getlist("files") if getattr(f, "filename", "")]
         back = f"/c/{chat_id}" if chat_id else "/"

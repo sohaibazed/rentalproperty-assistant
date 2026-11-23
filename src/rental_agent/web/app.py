@@ -31,7 +31,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from rental_agent import attention, db, gmail, property_tax, renewal, runner
-from rental_agent.config import artifacts_dir, env_or_file, reference_dir
+from rental_agent.config import MODELS, artifacts_dir, env_or_file, reference_dir
 from rental_agent.jobs import rent_research
 from rental_agent.jobs.lease import NOTICE_DAYS, long_date
 from rental_agent.web import chat_views, review_views
@@ -245,9 +245,10 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
             return await jobs_page(request, job=None, show_all=False)
         with conn:
             run = db.job_run(conn, run_id)
+            cost = db.job_run_cost(conn, run_id)
         if not run:
             raise HTTPException(404)
-        return page(request, "run.html", run=run)
+        return page(request, "run.html", run=run, cost=cost, models=MODELS)
 
     @app.post("/runs/{run_id}/save-research")
     async def save_dry_run_research(request: Request, run_id: int):

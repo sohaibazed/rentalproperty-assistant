@@ -3,13 +3,14 @@
 import asyncio
 import logging
 import os
+from decimal import Decimal
 
 import psycopg
 import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from rental_agent import runner
+from rental_agent import db, runner
 from rental_agent.web.app import create_app
 from rental_agent.web.chat_views import ChatManager
 from rental_agent.web.jobs import JobManager
@@ -24,7 +25,7 @@ pytestmark = pytest.mark.skipif(not (DB and ADMIN), reason="no test database con
 def manager(tmp_path, monkeypatch):
     monkeypatch.setenv("RENTAL_ARTIFACTS_DIR", str(tmp_path))
     with psycopg.connect(ADMIN, autocommit=True) as conn:
-        conn.execute("truncate job_runs restart identity")
+        conn.execute("truncate claude_usage, job_runs restart identity")
     store = SecretStore(tmp_path / "s.enc", Fernet.generate_key().decode())
     store.set("RENTAL_DB_URL", DB)
 
@@ -58,6 +59,45 @@ def test_successful_run_is_recorded(manager):
     status, summary, outputs, log, trigger = _row(asyncio.run(go()))
     assert (status, summary, outputs, trigger) == ("success", "did it", ["out.txt"], "manual")
     assert "working on tax-report" in log
+
+
+def test_claude_cost_is_tied_to_the_run(manager, tmp_path, monkeypatch):
+    original = manager.run_fn
+
+    async def with_calls(job, params, settings):
+        db.record_claude_cost(settings.db_url, "email-extraction", "claude-opus-5-5", 0.25)
+        db.record_claude_cost(settings.db_url, "email-extraction", "claude-opus-5-5", 0.5)
+        return await original(job, params, settings)
+
+    async def go():
+        manager.run_fn = with_calls
+        first = await manager.start("sync-email", {})
+        await _wait(manager)
+        manager.run_fn = original
+        second = await manager.start("tax-report", {})
+        await _wait(manager)
+        return first, second
+    first, second = asyncio.run(go())
+    db.record_claude_cost(DB, "chat", "claude-sonnet-5-5", 1)          # outside any job
+    with psycopg.connect(ADMIN) as conn:
+        assert conn.execute("select job_run_id, cost_usd from claude_usage order by id"
+                            ).fetchall() == [(first, Decimal("0.25")), (first, Decimal("0.5")),
+                                             (None, Decimal(1))]
+    with db.connect(DB) as conn:
+        assert [(r["id"], r["cost_usd"]) for r in db.job_runs(conn)] == [
+            (second, None), (first, Decimal("0.75"))]
+
+    for k, v in {"RENTAL_UI_PASSWORD": "pw", "RENTAL_UI_USERNAME": "owner@example.com",
+                 "RENTAL_SCHEDULER": "off", "RENTAL_DATA_DIR": str(tmp_path / "data")}.items():
+        monkeypatch.setenv(k, v)
+    app = create_app(store=manager.store, manager=manager, chats=ChatManager(manager.store))
+    with TestClient(app) as c:
+        c.post("/login", data={"email": "owner@example.com", "password": "pw"},
+               headers={"origin": "http://testserver"})
+        assert "Claude cost $0.75 (2 calls, Opus 5.5)" in c.get(f"/runs/{first}").text
+        assert "no Claude calls" in c.get(f"/runs/{second}").text
+        page = " ".join(c.get("/jobs").text.split())
+        assert "<th>Claude cost</th>" in page and "<td>$0.75</td>" in page
 
 
 def test_failed_run_keeps_the_traceback(manager):

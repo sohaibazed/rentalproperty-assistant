@@ -99,7 +99,7 @@ def test_restore_refuses_a_database_with_rows(seeded, tmp_path):
 
 def test_attention_reports_a_failed_or_old_backup(seeded):
     def last_run(status, started):
-        admin("truncate job_runs restart identity",
+        admin("truncate claude_usage, job_runs restart identity",
               f"insert into job_runs (job, status, started_at) values ('backup', '{status}', "
               f"'{started.isoformat()}')")
         with psycopg.connect(DB) as conn:

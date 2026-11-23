@@ -4,7 +4,9 @@
 {% block content %}
 <h1>Run #{{ run.id }}: {{ run.job }} {% with status = run.status %}{% include "_status.html" %}{% endwith %}</h1>
 <p class="muted">Started {{ run.started_at.strftime("%Y-%m-%d %H:%M:%S") }} ({{ run.trigger }})
-  {% if run.finished_at %}· finished {{ run.finished_at.strftime("%H:%M:%S") }}{% else %}· refreshing every 3 seconds{% endif %}</p>
+  {% if run.finished_at %}· finished {{ run.finished_at.strftime("%H:%M:%S") }}{% else %}· refreshing every 3 seconds{% endif %}
+  {% if cost.calls %}· Claude cost {{ cost.cost | money }} ({{ cost.calls }} call{{ '' if cost.calls == 1 else 's' }}, {% for m in cost.models %}{{ models.get(m, m) }}{{ ", " if not loop.last }}{% endfor %})
+  {% elif run.finished_at %}· no Claude calls{% endif %}</p>
 <div class="grid">
   <section class="card">
     <h2>Summary</h2>

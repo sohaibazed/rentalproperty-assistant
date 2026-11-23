@@ -181,7 +181,7 @@ create table if not exists job_runs (
 );
 
 -- What each Claude call cost, as reported by the Agent SDK (list-price estimate, not the
--- invoice). The dashboard sums the current month.
+-- invoice). The dashboard sums the current month; the Jobs page sums each run.
 create table if not exists claude_usage (
   id        bigint generated always as identity primary key,
   used_at   timestamptz not null default now(),
@@ -190,6 +190,9 @@ create table if not exists claude_usage (
   cost_usd  numeric(12,6) not null
 );
 create index if not exists claude_usage_used_at on claude_usage (used_at);
+-- The job run a call belongs to; null for the chat and for jobs started from the command line.
+alter table claude_usage add column if not exists job_run_id bigint references job_runs(id);
+create index if not exists claude_usage_job_run_id on claude_usage (job_run_id);
 
 -- Chat history. Proposals are actions the assistant suggested (save an expense, run a job,
 -- import a document, add a memory rule); they only take effect when the owner clicks to confirm.

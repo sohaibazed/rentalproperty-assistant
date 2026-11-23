@@ -220,9 +220,11 @@ research. Set **one** of these on the **Settings** page.
 2. Sign in when the browser opens, then copy the token it prints.
 3. **Settings → Claude Code OAuth token**: paste it and **Save**.
 
-If both are set, the API key is used. Pick a model per chat in the chat's model menu;
-Sonnet 5.5 is the default for new chats; Opus 5.5 is the most capable, and Haiku 5.5 is the
-fastest and cheapest. The jobs always use Opus 5.5.
+If both are set, the API key is used. Pick a model per chat in the chat's model menu:
+Opus 5.5 is the most capable, and Haiku 5.5 is the fastest and cheapest. The defaults are in
+[`config/models.toml`](config/models.toml): `chat` is the model a new chat starts on (Sonnet
+5.5) and `jobs` is the model every job uses (Opus 5.5). Edit the file on your Mac; no restart
+is needed. The Jobs page shows what each run's Claude calls cost.
 
 ## 5. Gmail
 
@@ -354,6 +356,7 @@ property in Plano, Texas. Check them before relying on the output:
 | Taxes on Schedule E (single-member LLC) | `tax-report` job | Your LLC files a partnership return (Form 1065); ask your CPA |
 | Property-tax protest: Collin County's forms, dates and open data | `tax-protest` job: [`src/rental_agent/jobs/tax_protest.py`](src/rental_agent/jobs/tax_protest.py) and [`src/rental_agent/collin_cad.py`](src/rental_agent/collin_cad.py) | Your property is in another county; the job refuses other counties |
 | Senders to read in Gmail | [`config/email_sources.toml`](config/email_sources.toml) | Always: set your bank and vendors |
+| Default models for jobs and the chat | [`config/models.toml`](config/models.toml) | You want lower cost (Sonnet or Haiku for jobs) or a different chat default |
 | Agent instructions | [`prompts/agent-prompts.md`](prompts/agent-prompts.md) | You want the assistant to behave differently |
 
 Restart with `make up` after changing code, templates or prompts.
@@ -366,7 +369,7 @@ Restart with `make up` after changing code, templates or prompts.
 | `memory/` (your rules) | Folder on your Mac |
 | `artifacts/` (reports, leases, tax files, receipts, chat uploads) | Folder on your Mac |
 | `reference/` (your documents; read-only to the app) | Folder on your Mac |
-| `config/` (`email_sources.toml`) | Folder on your Mac |
+| `config/` (`email_sources.toml`, `models.toml`) | Folder on your Mac |
 | Encrypted secrets, chat session files | Docker volume `rental-data` |
 | Encryption key, login email and password, Tailscale auth key (optional) | macOS Keychain |
 | Tailscale machine registration (optional) | Docker volume `tailscale-state` |
