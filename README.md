@@ -1,6 +1,6 @@
 # Rental Agent
 
-![Rental Agent tour: dashboard, leases, rent, expenses and rent research, then saving an expense from a chat](docs/rental-agent-demo.gif)
+![Rental Agent tour: chat home, dashboard, rent, expenses, property tax, leases, renewal, rent research and jobs, then saving an expense from a chat](docs/rental-agent-demo.gif)
 
 *Demo with made-up data.*
 
