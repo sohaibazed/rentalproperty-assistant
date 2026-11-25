@@ -13,7 +13,7 @@ from pathlib import Path
 
 import psycopg
 
-from rental_agent import backup, db, doc_import, gmail, memory, runner
+from rental_agent import backup, categories, db, doc_import, gmail, memory, runner
 from rental_agent.config import (
     artifacts_dir,
     env_or_file,
@@ -21,7 +21,6 @@ from rental_agent.config import (
     gmail_token_path,
     load_settings,
 )
-from rental_agent.extract import SCHEDULE_E_CATEGORIES
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,7 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     add = sub.add_parser("add-expense", help="record an expense that didn't arrive by email")
     add.add_argument("--amount", type=Decimal, required=True)
     add.add_argument("--date", type=date.fromisoformat, required=True)
-    add.add_argument("--category", choices=SCHEDULE_E_CATEGORIES, required=True)
+    add.add_argument("--category", required=True,
+                     help="a Schedule E category, or a type added on the Expenses page")
     add.add_argument("--vendor")
     add.add_argument("--description")
     add.add_argument("--property-id", type=int, help="omit for an LLC-wide expense")
@@ -98,6 +98,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.amount <= 0:
             parser.error("--amount must be positive")
         with db.connect(settings.db_url) as conn:
+            known = categories.load(conn)
+            if args.category not in known:
+                parser.error(f"--category must be one of {', '.join(known)}")
             db.insert_expense(
                 conn,
                 property_id=args.property_id,
@@ -145,13 +148,13 @@ def _import_document(db_url: str, file: Path, data_path: Path, apply: bool) -> i
     if not file.is_file():
         print(f"No such file: {file}", file=sys.stderr)
         return 1
-    try:
-        data = doc_import.validate(json.loads(data_path.read_text()))
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
-        print(f"Invalid facts in {data_path}: {exc}", file=sys.stderr)
-        return 1
-    print(json.dumps(data, indent=2))
     with db.connect(db_url) as conn:
+        try:
+            data = doc_import.validate(json.loads(data_path.read_text()), categories.load(conn))
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print(f"Invalid facts in {data_path}: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps(data, indent=2))
         try:
             lines = doc_import.apply(conn, data, file)
         except ValueError as exc:

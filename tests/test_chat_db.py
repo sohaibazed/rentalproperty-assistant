@@ -11,6 +11,7 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from rental_agent import chat, runner
+from rental_agent.categories import SCHEDULE_E_CATEGORIES as CATS
 from rental_agent.config import Settings
 from rental_agent.web.app import create_app
 from rental_agent.web.chat_views import ChatManager
@@ -56,7 +57,7 @@ def client(tmp_path, monkeypatch):
         if "house" in text or "1098" in text:
             # The real tools check the facts and build the cards.
             cards: list[dict] = []
-            tools = {t.name: t for t in chat.make_tools(settings, cards, {rel for rel, _ in files})}
+            tools = {t.name: t for t in chat.make_tools(settings, cards, {rel for rel, _ in files}, CATS)}
             if "house" in text:
                 await tools["propose_property_update"].handler({
                     "property_id": 1, "reason": "From the owner.",
@@ -165,7 +166,7 @@ def test_property_card_saves_the_facts(client, tmp_path):
 
     cards: list[dict] = []
     settings = Settings("m", DB, tmp_path, tmp_path, tmp_path)
-    tool = {t.name: t for t in chat.make_tools(settings, cards, set())}["propose_property_update"]
+    tool = {t.name: t for t in chat.make_tools(settings, cards, set(), CATS)}["propose_property_update"]
     same = asyncio.run(tool.handler({"property_id": 1, "changes": {"beds": 3.0}, "reason": ""}))
     assert same["is_error"] and "nothing to change" in same["content"][0]["text"]
     unknown = asyncio.run(tool.handler({"property_id": 1, "changes": {"garage": 2}, "reason": ""}))

@@ -30,7 +30,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from rental_agent import attention, db, gmail, move_out, property_tax, renewal, runner
+from rental_agent import (
+    attention,
+    categories,
+    db,
+    gmail,
+    move_out,
+    property_tax,
+    renewal,
+    runner,
+)
 from rental_agent.config import MODELS, artifacts_dir, env_or_file, reference_dir
 from rental_agent.jobs import rent_research
 from rental_agent.jobs.lease import NOTICE_DAYS, long_date
@@ -307,17 +316,36 @@ def create_app(store: SecretStore | None = None, manager: JobManager | None = No
     async def expenses_page(request: Request, year: int | None = None):
         year = year or date.today().year
         conn, db_error = connect()
-        rows, by_category = [], {}
+        rows, by_category, expense_categories = [], {}, []
         if conn:
             with conn:
                 rows = db.expenses_list(conn, year, include_removed=True)
+                expense_categories = categories.load(conn)
             for r in rows:
                 if r["removed_at"]:
                     continue
                 by_category[r["category"]] = by_category.get(r["category"], 0) + r["amount"]
         return page(request, "expenses.html", rows=rows, year=year, db_error=db_error,
                     by_category=sorted(by_category.items(), key=lambda kv: -kv[1]),
-                    total=sum(by_category.values()))
+                    total=sum(by_category.values()), categories=expense_categories)
+
+    @app.post("/expense-types")
+    async def add_expense_type(request: Request, name: str = Form(""), year: int = Form(0)):
+        back = f"/expenses?year={year}" if year else "/expenses"
+        conn, db_error = connect()
+        if not conn:
+            flash(request, db_error, "error")
+            return RedirectResponse(back, status_code=303)
+        with conn:
+            try:
+                added = categories.add(conn, name)
+            except ValueError as exc:
+                flash(request, f"Not added: {exc}", "error")
+                return RedirectResponse(back, status_code=303)
+            conn.commit()
+        flash(request, f"Added the type '{added.replace('_', ' ')}'. "
+                       "Choose it in an expense's Category list.")
+        return RedirectResponse(back, status_code=303)
 
     @app.get("/research", response_class=HTMLResponse)
     async def research_page(request: Request):

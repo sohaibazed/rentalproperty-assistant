@@ -6,6 +6,7 @@ import copy
 import pytest
 
 from rental_agent import chat, doc_import
+from rental_agent.categories import SCHEDULE_E_CATEGORIES as CATS
 from rental_agent.config import Settings
 
 LEASE = {
@@ -52,7 +53,7 @@ def _with(base, path, value):
 
 
 def test_valid_lease_is_cleaned_and_redacted():
-    data = doc_import.validate(LEASE)
+    data = doc_import.validate(LEASE, CATS)
     lease = data["lease"]
     assert lease["address"] == "12 Oak St" and lease["state"] == "TX"
     assert lease["tenant_names"] == ["Tenant A", "Tenant B"]
@@ -72,21 +73,21 @@ def test_valid_lease_is_cleaned_and_redacted():
 ])
 def test_bad_lease_rejected(path, value, error):
     with pytest.raises(ValueError, match=error):
-        doc_import.validate(_with(LEASE, path, value))
+        doc_import.validate(_with(LEASE, path, value), CATS)
 
 
 def test_llc_checks():
-    assert doc_import.validate(LLC)["llc"]["members"][0] == {"name": "A", "percent": 50.0}
+    assert doc_import.validate(LLC, CATS)["llc"]["members"][0] == {"name": "A", "percent": 50.0}
     with pytest.raises(ValueError, match="add up to 90"):
-        doc_import.validate(_with(LLC, ("llc", "members", 1, "percent"), 40))
+        doc_import.validate(_with(LLC, ("llc", "members", 1, "percent"), 40), CATS)
     with pytest.raises(ValueError, match="12-3456789"):
-        doc_import.validate(_with(LLC, ("llc", "ein"), "391234567"))
+        doc_import.validate(_with(LLC, ("llc", "ein"), "391234567"), CATS)
     with pytest.raises(ValueError, match="needs the llc facts"):
-        doc_import.validate(_with(LLC, ("llc",), None))
+        doc_import.validate(_with(LLC, ("llc",), None), CATS)
 
 
 def test_year_end_document_carries_expense_lines():
-    data = doc_import.validate(FORM_1098)
+    data = doc_import.validate(FORM_1098, CATS)
     interest, taxes = data["expenses"]
     assert data["property_id"] == 1 and data["lease"] is None
     assert interest == {"id": interest["id"], "date": "2025-12-31", "amount": "8123.45",
@@ -96,11 +97,11 @@ def test_year_end_document_carries_expense_lines():
     assert interest["id"].startswith("doc:") and interest["id"] != taxes["id"]
     # The id doesn't depend on the wording, so a second import can't record the line twice.
     reworded = _with(FORM_1098, ("expenses", 0, "description"), "Interest paid")
-    assert doc_import.validate(reworded)["expenses"][0]["id"] == interest["id"]
-    assert doc_import.validate(data) == data                  # a stored card checks out again
-    twice = doc_import.validate({**FORM_1098, "expenses": [FORM_1098["expenses"][0]] * 2})
+    assert doc_import.validate(reworded, CATS)["expenses"][0]["id"] == interest["id"]
+    assert doc_import.validate(data, CATS) == data                  # a stored card checks out again
+    twice = doc_import.validate({**FORM_1098, "expenses": [FORM_1098["expenses"][0]] * 2}, CATS)
     assert twice["expenses"][0]["id"] != twice["expenses"][1]["id"]
-    assert doc_import.validate({**FORM_1098, "expenses": []})["expenses"] == []
+    assert doc_import.validate({**FORM_1098, "expenses": []}, CATS)["expenses"] == []
 
 
 @pytest.mark.parametrize("path,value,error", [
@@ -113,7 +114,7 @@ def test_year_end_document_carries_expense_lines():
 ])
 def test_year_end_document_rules(path, value, error):
     with pytest.raises(ValueError, match=error):
-        doc_import.validate(_with(FORM_1098, path, value))
+        doc_import.validate(_with(FORM_1098, path, value), CATS)
 
 
 def test_document_text_uses_summary_for_files_without_text(tmp_path):
@@ -128,7 +129,7 @@ def test_document_text_uses_summary_for_files_without_text(tmp_path):
 def test_propose_document_import_records_a_card(tmp_path):
     proposals = []
     settings = Settings("m", "db", tmp_path, tmp_path, tmp_path)
-    tools = {t.name: t for t in chat.make_tools(settings, proposals, {"chat-uploads/1/x.pdf"})}
+    tools = {t.name: t for t in chat.make_tools(settings, proposals, {"chat-uploads/1/x.pdf"}, CATS)}
     tool = tools["propose_document_import"]
     bad = asyncio.run(tool.handler({**LEASE, "attachment": "chat-uploads/9/other.pdf"}))
     assert bad["is_error"] and not proposals

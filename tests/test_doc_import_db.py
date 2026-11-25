@@ -8,6 +8,7 @@ import psycopg
 import pytest
 
 from rental_agent import cli, doc_import
+from rental_agent.categories import SCHEDULE_E_CATEGORIES as CATS
 from tests.test_doc_import import FORM_1098, LEASE, LLC
 
 DB = os.environ.get("TEST_DATABASE_URL")
@@ -107,7 +108,7 @@ def test_year_end_document_records_each_expense_once(tmp_path, monkeypatch):
                                 "receipt_path from expenses order by id").fetchall()
 
     with psycopg.connect(DB) as conn:
-        marked = doc_import.mark_existing(conn, doc_import.validate(FORM_1098))
+        marked = doc_import.mark_existing(conn, doc_import.validate(FORM_1098, CATS))
         assert [(line["include"], line["existing"]) for line in marked["expenses"]] == [
             (True, None), (False, "same amount already recorded on Jan 28, 2025 (taxes)")]
         lines = doc_import.apply(conn, FORM_1098, src)           # as the command line does
@@ -134,7 +135,7 @@ def test_year_end_document_records_each_expense_once(tmp_path, monkeypatch):
     with psycopg.connect(ADMIN, autocommit=True) as conn:
         conn.execute("update expenses set removed_at = now() where id = 2")
     with psycopg.connect(DB) as conn:
-        marked = doc_import.mark_existing(conn, doc_import.validate(FORM_1098))
+        marked = doc_import.mark_existing(conn, doc_import.validate(FORM_1098, CATS))
         assert marked["expenses"][0]["existing"] == "removed earlier; restore it on the Expenses page"
         with pytest.raises(ValueError, match="no property with id 9"):
             doc_import.apply(conn, {**FORM_1098, "property_id": 9}, src)

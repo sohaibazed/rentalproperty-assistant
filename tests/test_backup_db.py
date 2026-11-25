@@ -16,7 +16,8 @@ pytestmark = pytest.mark.skipif(not (DB and ADMIN), reason="no test database con
 TODAY = date(2026, 11, 18)
 TABLES = ("llcs, properties, tenants, leases, lease_tenants, rent_payments, expenses, "
           "rent_research, tax_protests, email_ingest_log, sync_runs, job_runs, claude_usage, "
-          "chats, chat_messages, reference_documents, move_outs, deposit_deductions")
+          "chats, chat_messages, reference_documents, move_outs, deposit_deductions, "
+          "expense_categories")
 
 
 def admin(*statements):
@@ -40,6 +41,9 @@ def seeded(tmp_path):
           "values (1, '2026-01-01', '2026-12-31', 2500)",
           "insert into lease_tenants (lease_id, tenant_id) values (1, 1), (1, 2)",
           "insert into rent_payments (lease_id, amount, paid_on) values (1, 2500, '2026-10-02')",
+          "insert into expense_categories (name) values ('hoa_dues')",
+          "insert into expenses (amount, spent_on, schedule_e_category) "
+          "values (383.85, '2026-10-06', 'hoa_dues')",
           "insert into tax_protests (property_id, year, opinion, filed_on) "
           "values (1, 2027, 415000, '2027-05-03')",
           "insert into reference_documents (path, category, title, content) "
@@ -60,7 +64,7 @@ def test_round_trip_restores_every_row_and_file(seeded, tmp_path):
     made = backup.create(DB, artifacts, memory, TODAY)
     before = snapshot()
     assert made.path == artifacts / "backups/rental-backup-2026-11-18.zip"
-    assert (made.tables, made.files) == (18, 2)
+    assert (made.tables, made.files) == (19, 2)
     with zipfile.ZipFile(made.path) as zf:
         assert not [n for n in zf.namelist() if "backups/" in n]    # never backs up itself
 
@@ -69,7 +73,7 @@ def test_round_trip_restores_every_row_and_file(seeded, tmp_path):
     result = backup.restore(made.path, ADMIN, new_artifacts, new_memory)
 
     assert snapshot() == before
-    assert (result.tables, result.written) == (18, 2)
+    assert (result.tables, result.written) == (19, 2)
     assert (new_artifacts / "2027/lease.pdf").read_bytes() == b"%PDF signed"
     assert (new_memory / "memory.md").read_text() == "- my rule\n"
     # ID counters continue after the restored rows, as the app's own role.

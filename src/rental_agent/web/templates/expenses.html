@@ -1,28 +1,37 @@
 {% extends "base.html" %}
 {% block title %}Expenses · Rental Agent{% endblock %}
+{% block head %}<script src="/static/autosubmit.js" defer></script>{% endblock %}
 {% block content %}
 <h1>Expenses</h1>
 {% include "_db_error.html" %}{% include "_year.html" %}
-<div class="grid">
-  <section class="card">
-    <h2>By Schedule E category</h2>
+<section class="card">
+    <h2>By category</h2>
     <table><tbody>
       {% for cat, amount in by_category %}<tr><td>{{ cat.replace("_", " ") }}</td><td class="r">{{ amount | money }}</td></tr>{% endfor %}
       <tr class="total"><td>Total</td><td class="r">{{ total | money }}</td></tr>
     </tbody></table>
-  </section>
-  <section class="card">
+  <form method="post" action="/expense-types" class="inline">
+    <input type="hidden" name="year" value="{{ year }}">
+    <input name="name" maxlength="40" size="30" placeholder="New expense type, e.g. HOA dues" aria-label="New expense type" required>
+    <button class="secondary">Add type</button>
+  </form>
+  <p class="small muted">Your own types are reported on Schedule E line 19 (Other), listed by name.</p>
+</section>
+<section class="card">
     <h2>All expenses</h2>
     <table>
       <thead><tr><th>Date</th><th class="r">Amount</th><th>Category</th><th>Vendor</th><th>Receipt</th><th>Review</th><th></th></tr></thead>
       <tbody>{% for r in rows %}<tr{% if r.removed_at %} class="removed"{% endif %}>
-        <td>{{ r.spent_on }}</td><td class="r">{{ r.amount | money }}</td><td>{{ r.category.replace("_", " ") }}</td>
+        <td>{{ r.spent_on }}</td><td class="r">{{ r.amount | money }}</td><td>{% if r.removed_at %}{{ r.category.replace("_", " ") }}{% else %}
+          <form method="post" action="/expenses/{{ r.id }}" class="inline">
+            <input type="hidden" name="action" value="category">
+            <select name="category" class="cell-select" data-autosubmit aria-label="Category">{% for c in categories %}<option value="{{ c }}" {% if c == r.category %}selected{% endif %}>{{ c.replace("_", " ") }}</option>{% endfor %}</select>
+          </form>{% endif %}</td>
         <td>{{ r.vendor or "-" }}</td>
         <td>{% if r.receipt_path %}<a href="/files/{{ r.receipt_path }}">view</a>{% endif %}</td>
         <td>{% if r.removed_at %}<span class="pill">removed</span>{% elif r.needs_review %}<span class="pill failed">check</span>{% endif %}</td>
         <td><a href="/expenses/{{ r.id }}">{{ "Restore" if r.removed_at else "Edit" }}</a></td>
       </tr>{% else %}<tr><td colspan="7" class="muted">No expenses recorded for {{ year }}.</td></tr>{% endfor %}</tbody>
     </table>
-  </section>
-</div>
+</section>
 {% endblock %}

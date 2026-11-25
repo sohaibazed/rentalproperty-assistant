@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from rental_agent import db, gmail
+from rental_agent import categories, db, gmail
 from rental_agent.config import Settings, load_email_sources
 from rental_agent.extract import extract
 from rental_agent.validate import Candidate, validate
@@ -60,6 +60,7 @@ async def run(settings: Settings, *, since: date | None, dry_run: bool) -> SyncR
         report = SyncReport(since=since)
         properties = db.load_properties(conn)
         property_ids = {p.id for p in properties}
+        expense_categories = categories.load(conn)
 
         message_ids = gmail.search_message_ids(service, gmail.build_query(sources, since))
         report.found = len(message_ids)
@@ -74,11 +75,13 @@ async def run(settings: Settings, *, since: date | None, dry_run: bool) -> SyncR
             try:
                 msg = gmail.get_message(service, message_id)
                 gmail.read_pdfs(service, msg)
-                raw = await extract(msg, properties, settings.model, settings.claude_env, settings.db_url)
+                raw = await extract(msg, properties, expense_categories, settings.model,
+                                    settings.claude_env, settings.db_url)
                 cand = validate(
                     raw,
                     email_date=msg.sent_at.date(),
                     known_property_ids=property_ids,
+                    categories=expense_categories,
                     today=today,
                 )
                 if dry_run:

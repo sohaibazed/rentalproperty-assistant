@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from rental_agent.categories import SCHEDULE_E_CATEGORIES as CATS
 from rental_agent.validate import ValidationError, validate
 
 TODAY = date(2026, 11, 16)
@@ -18,7 +19,8 @@ def _raw(**overrides):
 
 
 def _v(raw, ids=frozenset({1})):
-    return validate(raw, email_date=date(2026, 11, 11), known_property_ids=set(ids), today=TODAY)
+    return validate(raw, email_date=date(2026, 11, 11), known_property_ids=set(ids),
+                    categories=CATS, today=TODAY)
 
 
 def test_clean_expense_is_stored_without_review():

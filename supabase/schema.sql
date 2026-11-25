@@ -6,14 +6,14 @@
 -- restricted role rental_agent (created at the end), which can read, add and update rows but
 -- never delete them.
 
--- Schedule E (Form 1040) expense lines, plus 'other'.
-do $$ begin
-  create type schedule_e_category as enum (
-    'advertising', 'auto_travel', 'cleaning_maintenance', 'commissions', 'insurance',
-    'legal_professional', 'management_fees', 'mortgage_interest', 'other_interest',
-    'repairs', 'supplies', 'taxes', 'utilities', 'depreciation', 'other'
-  );
-exception when duplicate_object then null; end $$;
+-- Expense types the owner adds on the Expenses page (for example hoa_dues), on top of the
+-- Schedule E (Form 1040) lines that the app has built in. The tax report puts an owner's type
+-- on line 19 "Other", listed by name. Empty until the owner adds one, so a backup restores
+-- into a new database.
+create table if not exists expense_categories (
+  name        text primary key check (name ~ '^[a-z][a-z0-9_]{1,39}$'),
+  created_at  timestamptz not null default now()
+);
 
 -- LLCs that own the properties. Filled by the import-document skill from the certificate of
 -- formation, operating agreement and EIN letter.
@@ -133,7 +133,7 @@ create table if not exists expenses (
   spent_on             date not null,
   vendor               text,
   description          text,
-  schedule_e_category  schedule_e_category not null,
+  schedule_e_category  text not null,  -- a Schedule E line or an owner's type; the app checks
   receipt_path         text,
   source_message_id    text unique,
   needs_review         boolean not null default false,
@@ -145,6 +145,15 @@ create table if not exists expenses (
 -- imported again, and can be restored. An `alter`, so it also upgrades an existing database.
 alter table rent_payments add column if not exists removed_at timestamptz;
 alter table expenses add column if not exists removed_at timestamptz;
+
+-- Upgrade for a database made before the owner could add expense types: the category was a
+-- fixed enum. Does nothing on a new database or when run again.
+do $$ begin
+  if exists (select 1 from pg_type where typname = 'schedule_e_category') then
+    alter table expenses alter column schedule_e_category type text;
+    drop type schedule_e_category;
+  end if;
+end $$;
 
 create table if not exists rent_research (
   id                bigint generated always as identity primary key,
@@ -263,11 +272,10 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 grant usage on schema public to rental_agent;
-grant usage on type schedule_e_category to rental_agent;
 grant select, insert on
   llcs, properties, tenants, leases, lease_tenants, rent_payments, expenses, rent_research,
   tax_protests, email_ingest_log, sync_runs, job_runs, chats, chat_messages, reference_documents,
-  claude_usage, move_outs, deposit_deductions
+  claude_usage, move_outs, deposit_deductions, expense_categories
   to rental_agent;
 grant update on
   llcs, properties, leases, rent_payments, expenses, rent_research, tax_protests, sync_runs,
@@ -283,7 +291,7 @@ begin
     'llcs', 'properties', 'tenants', 'leases', 'lease_tenants', 'rent_payments', 'expenses',
     'rent_research', 'tax_protests', 'email_ingest_log', 'sync_runs', 'job_runs', 'chats',
     'chat_messages', 'reference_documents', 'claude_usage', 'move_outs',
-    'deposit_deductions'
+    'deposit_deductions', 'expense_categories'
   ] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists rental_agent_all on %I', t);

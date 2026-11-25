@@ -38,6 +38,7 @@ from claude_agent_sdk import (
 )
 
 from rental_agent import (
+    categories,
     corrections,
     db,
     doc_import,
@@ -49,7 +50,6 @@ from rental_agent import (
     statement_import,
 )
 from rental_agent.config import MODELS, Settings, data_dir
-from rental_agent.extract import SCHEDULE_E_CATEGORIES
 
 # Skills for the chat live in a local plugin; .claude/skills links to the same files so
 # Claude Code in this repo uses them too.
@@ -104,8 +104,8 @@ def _err(message: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": message}], "is_error": True}
 
 
-def validate_expense(args: dict[str, Any], property_ids: set[int], attachments: set[str],
-                     today: date) -> dict[str, Any]:
+def validate_expense(args: dict[str, Any], property_ids: set[int], expense_categories: list[str],
+                     attachments: set[str], today: date) -> dict[str, Any]:
     try:
         spent_on = date.fromisoformat(str(args["date"]))
         amount = Decimal(str(args["amount"])).quantize(Decimal("0.01"))
@@ -116,8 +116,8 @@ def validate_expense(args: dict[str, Any], property_ids: set[int], attachments: 
     if not Decimal(0) < amount <= MAX_EXPENSE:
         raise ValueError("amount must be positive and under $100,000")
     category = args.get("category")
-    if category not in SCHEDULE_E_CATEGORIES:
-        raise ValueError(f"category must be one of {', '.join(SCHEDULE_E_CATEGORIES)}")
+    if category not in expense_categories:
+        raise ValueError(f"category must be one of {', '.join(expense_categories)}")
     property_id = args.get("property_id")
     if property_id is not None and property_id not in property_ids:
         raise ValueError(f"unknown property_id {property_id}")
@@ -131,7 +131,9 @@ def validate_expense(args: dict[str, Any], property_ids: set[int], attachments: 
             "receipt": receipt}
 
 
-def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments: set[str]):
+def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments: set[str],
+               expense_categories: list[str]):
+    """`expense_categories`: the categories an expense card may use (categories.load)."""
     def connect():
         return db.connect(settings.db_url)
 
@@ -145,6 +147,7 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
     year_schema = {"type": "object", "properties": {"year": {"type": "integer"}},
                    "required": ["year"]}
     none_schema = {"type": "object", "properties": {}}
+    import_schema = doc_import.import_schema(expense_categories)
 
     @tool("year_summary", "Rent collected, expenses by Schedule E category, and items needing "
           "review, for one year.", year_schema)
@@ -221,7 +224,7 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
                   "date": {"type": "string", "description": "YYYY-MM-DD"},
                   "amount": {"type": "number"},
                   "vendor": {"type": "string"},
-                  "category": {"type": "string", "enum": SCHEDULE_E_CATEGORIES},
+                  "category": {"type": "string", "enum": expense_categories},
                   "property_id": {"type": ["integer", "null"],
                                   "description": "null for an LLC-wide expense"},
                   "description": {"type": "string"},
@@ -234,7 +237,8 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
         with connect() as conn:
             property_ids = {p["id"] for p in db.properties_list(conn)}
         try:
-            data = validate_expense(args, property_ids, attachments, date.today())
+            data = validate_expense(args, property_ids, expense_categories, attachments,
+                                    date.today())
         except ValueError as exc:
             return _err(f"Not proposed: {exc}")
         return propose("expense", data)
@@ -260,18 +264,18 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
           "document's facts (LLC, property, tenants, lease term) or a year-end document's "
           "expense lines (Form 1098, property tax statement, insurance declaration), and the "
           "document's text. Follow the import-document skill first. Does not save anything.",
-          {**doc_import.IMPORT_SCHEMA,
-           "properties": {**doc_import.IMPORT_SCHEMA["properties"],
+          {**import_schema,
+           "properties": {**import_schema["properties"],
                           "attachment": {"type": "string",
                                          "description": "path of the attached document"}},
-           "required": [*doc_import.IMPORT_SCHEMA["required"], "attachment"]})
+           "required": [*import_schema["required"], "attachment"]})
     async def propose_document_import(args):
         attachment = args.get("attachment")
         if attachment not in attachments:
             return _err("Not proposed: attachment must be the path of a file attached to "
                         "this message. Ask the owner to attach the document again.")
         try:
-            data = doc_import.validate(args)
+            data = doc_import.validate(args, expense_categories)
             if data["doc_type"] in doc_import.YEAR_END_TYPES:
                 with connect() as conn:
                     data = doc_import.mark_existing(conn, data)
@@ -294,7 +298,7 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
                                  "description": "path of the attached statement"},
                   "statement_name": {"type": "string",
                                      "description": "e.g. 'Checking, Jan to Nov 2026'"},
-                  "transactions": statement_import.TRANSACTIONS_SCHEMA,
+                  "transactions": statement_import.transactions_schema(expense_categories),
               },
               "required": ["attachment", "statement_name", "transactions"]})
     async def propose_statement_import(args):
@@ -306,7 +310,7 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
             property_ids = {p["id"] for p in db.properties_list(conn)}
             try:
                 rows = statement_import.validate(args.get("transactions") or [], property_ids,
-                                                 date.today())
+                                                 expense_categories, date.today())
             except ValueError as exc:
                 return _err(f"Not proposed: {exc}")
             rows = statement_import.mark_existing(conn, rows)
@@ -434,7 +438,8 @@ def make_tools(settings: Settings, proposals: list[dict[str, Any]], attachments:
 
 
 def build_tools(settings: Settings, proposals: list[dict[str, Any]], attachments: set[str]):
-    tools = make_tools(settings, proposals, attachments)
+    with db.connect(settings.db_url) as conn:
+        tools = make_tools(settings, proposals, attachments, categories.load(conn))
     return create_sdk_mcp_server("rental", tools=tools), [f"mcp__rental__{t.name}" for t in tools]
 
 

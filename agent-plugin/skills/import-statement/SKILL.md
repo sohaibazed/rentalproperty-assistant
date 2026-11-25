@@ -40,6 +40,9 @@ payer. A partial or unusual amount is still rent: include it and say what's diff
 | Supplies bought for the rental | `supplies` |
 | HOA dues and anything else rental-related | `other` |
 
+The owner can add types of their own (for example `hoa_dues`): they are the `category` values
+that this table doesn't name. Use an owner's type when it fits, instead of the table's row.
+
 Set `property_id` (null for a whole-LLC cost such as a CPA or state filing fee) and
 `payer_or_vendor`.
 

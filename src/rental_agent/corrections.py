@@ -13,8 +13,7 @@ from typing import Any
 
 import psycopg
 
-from rental_agent import db
-from rental_agent.extract import SCHEDULE_E_CATEGORIES
+from rental_agent import categories, db
 
 KINDS = ("rent", "expense")
 FIELDS = {
@@ -52,7 +51,8 @@ def _text(value: Any, limit: int) -> str | None:
     return " ".join(str(value or "").split())[:limit] or None
 
 
-def validate(kind: str, raw: dict[str, Any], property_ids: set[int], today: date) -> dict[str, Any]:
+def validate(kind: str, raw: dict[str, Any], property_ids: set[int],
+             expense_categories: list[str], today: date) -> dict[str, Any]:
     """Check values from a form or from the chat; returns clean values or raises ValueError."""
     try:
         on = date.fromisoformat(str(raw.get("date")))
@@ -75,8 +75,8 @@ def validate(kind: str, raw: dict[str, Any], property_ids: set[int], today: date
     if kind == "rent":
         out["payer"] = _text(raw.get("payer"), 200)
         return out
-    if raw.get("category") not in SCHEDULE_E_CATEGORIES:
-        raise ValueError(f"category must be one of {', '.join(SCHEDULE_E_CATEGORIES)}")
+    if raw.get("category") not in expense_categories:
+        raise ValueError(f"category must be one of {', '.join(expense_categories)}")
     out["category"] = raw["category"]
     out["vendor"] = _text(raw.get("vendor"), 200)
     out["description"] = _text(raw.get("description"), 500)
@@ -98,7 +98,8 @@ def save(conn: psycopg.Connection, kind: str, row_id: int, raw: dict[str, Any],
          today: date) -> str:
     """Save values to a row and mark it checked. Rent with no property stays unmatched and
     stays on the review list. Returns a one-line result. The caller commits."""
-    data = validate(kind, raw, {p["id"] for p in db.properties_list(conn)}, today)
+    data = validate(kind, raw, {p["id"] for p in db.properties_list(conn)},
+                    categories.load(conn), today)
     on, amount = date.fromisoformat(data["date"]), Decimal(data["amount"])
     result = f"Saved: ${amount:,.2f} on {on}."
     if kind == "rent":
@@ -123,6 +124,16 @@ def mark_checked(conn: psycopg.Connection, kind: str, row_id: int, today: date) 
     if row is None:
         raise ValueError("no such row")
     return save(conn, kind, row_id, values(kind, row), today)
+
+
+def set_category(conn: psycopg.Connection, row_id: int, category: Any) -> str:
+    """Change only an expense's category, from the Expenses table. A flagged row stays
+    flagged: the owner hasn't confirmed its amount and date here."""
+    if category not in categories.load(conn):
+        raise ValueError("unknown category")
+    if not db.set_expense_category(conn, row_id, category):
+        raise ValueError("that row was removed; restore it first")
+    return f"Category changed to {category.replace('_', ' ')}."
 
 
 def set_removed(conn: psycopg.Connection, kind: str, row_id: int, removed: bool) -> str:
@@ -165,7 +176,8 @@ def propose(conn: psycopg.Connection, args: dict[str, Any], today: date) -> dict
                          + ", ".join(FIELDS[kind]))
     properties = db.properties_list(conn)
     before = values(kind, row)
-    after = validate(kind, {**before, **changes}, {p["id"] for p in properties}, today)
+    after = validate(kind, {**before, **changes}, {p["id"] for p in properties},
+                     categories.load(conn), today)
     if kind == "rent":
         _lease_id(conn, after["property_id"], date.fromisoformat(after["date"]))
     addresses = {p["id"]: p["address"] for p in properties}

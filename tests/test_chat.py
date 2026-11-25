@@ -4,6 +4,7 @@ from datetime import date
 import pytest
 
 from rental_agent import chat, memory
+from rental_agent.categories import SCHEDULE_E_CATEGORIES as CATS
 from rental_agent.config import Settings
 from rental_agent.web.app import render_markdown
 
@@ -13,7 +14,7 @@ OK = {"date": "2026-11-12", "amount": 54.2, "vendor": "Home Depot", "category": 
 
 
 def test_validate_expense_accepts_good_input():
-    data = chat.validate_expense(OK, {1}, {"chat-uploads/1/r.jpg"}, TODAY)
+    data = chat.validate_expense(OK, {1}, CATS, {"chat-uploads/1/r.jpg"}, TODAY)
     assert data["amount"] == "54.20" and data["receipt"] == "chat-uploads/1/r.jpg"
 
 
@@ -24,7 +25,7 @@ def test_validate_expense_accepts_good_input():
 ])
 def test_validate_expense_rejects_bad_input(change):
     with pytest.raises(ValueError):
-        chat.validate_expense(OK | change, {1}, {"chat-uploads/1/r.jpg"}, TODAY)
+        chat.validate_expense(OK | change, {1}, CATS, {"chat-uploads/1/r.jpg"}, TODAY)
 
 
 def test_check_upload():
@@ -51,7 +52,7 @@ def test_content_blocks(tmp_path):
 def _tools(tmp_path, attachments=frozenset()):
     proposals = []
     settings = Settings("m", "db", tmp_path, tmp_path, tmp_path)
-    tools = {t.name: t for t in chat.make_tools(settings, proposals, set(attachments))}
+    tools = {t.name: t for t in chat.make_tools(settings, proposals, set(attachments), CATS)}
     return tools, proposals
 
 

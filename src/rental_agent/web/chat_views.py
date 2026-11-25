@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
 from rental_agent import (
     attention,
+    categories,
     chat,
     corrections,
     db,
@@ -27,7 +28,6 @@ from rental_agent import (
     statement_import,
 )
 from rental_agent.config import artifacts_dir, load_default_models, load_settings
-from rental_agent.extract import SCHEDULE_E_CATEGORIES
 from rental_agent.web.jobs import JobManager
 from rental_agent.web.secrets import SecretStore
 
@@ -118,10 +118,12 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
     def chat_page(request: Request, chat_id: int | None, search: str | None) -> HTMLResponse:
         conn, db_error = connect()
         current, messages, chat_list, properties, attention_count = None, [], [], [], 0
+        expense_categories = categories.SCHEDULE_E_CATEGORIES
         if conn:
             with conn:
                 chat_list = sidebar(conn, search)
                 properties = db.properties_list(conn)
+                expense_categories = categories.load(conn)
                 if chat_id is None:      # the home page only, to keep open chats fast
                     attention_count = len(attention.items(conn, datetime.now().date()))
                 else:
@@ -136,7 +138,7 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
                     search=search or "", db_error=db_error, models=chat.MODELS,
                     model=(current or {}).get("model") or load_default_models().chat,
                     live=chats.busy(chat_id) if chat_id else False, properties=properties,
-                    categories=SCHEDULE_E_CATEGORIES, memory_rules=memory_rules,
+                    categories=expense_categories, memory_rules=memory_rules,
                     attention_count=attention_count,
                     accept=",".join(sorted(chat.UPLOAD_TYPES)))
 
@@ -310,7 +312,8 @@ def register(app: FastAPI, *, store: SecretStore, jobs: JobManager, chats: ChatM
             {"date": form.get("date"), "amount": form.get("amount"), "vendor": form.get("vendor"),
              "category": form.get("category"), "description": form.get("description"),
              "property_id": int(prop_id) if prop_id else None, "receipt": receipt},
-            {p["id"] for p in db.properties_list(conn)}, {receipt} if receipt else set(),
+            {p["id"] for p in db.properties_list(conn)}, categories.load(conn),
+            {receipt} if receipt else set(),
             datetime.now().date())
         db.insert_expense(conn, property_id=data["property_id"], amount=data["amount"],
                           spent_on=data["date"], vendor=data["vendor"],

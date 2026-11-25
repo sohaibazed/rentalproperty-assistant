@@ -12,6 +12,7 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from rental_agent import chat, db, statement_import
+from rental_agent.categories import SCHEDULE_E_CATEGORIES as CATS
 from rental_agent.config import Settings
 from rental_agent.web.app import create_app
 from rental_agent.web.chat_views import ChatManager
@@ -54,7 +55,7 @@ def test_tool_marks_existing_then_card_saves_ticked_rows(seeded, tmp_path, monke
     settings = Settings("m", DB, tmp_path, tmp_path, tmp_path)
     proposals = []
     att = "chat-uploads/1/stmt.csv"
-    tools = {t.name: t for t in chat.make_tools(settings, proposals, {att})}
+    tools = {t.name: t for t in chat.make_tools(settings, proposals, {att}, CATS)}
     r = asyncio.run(tools["propose_statement_import"].handler(
         {"attachment": att, "statement_name": "Checking 2026", "transactions": ROWS}))
     assert not r.get("is_error") and "look already recorded" in r["content"][-1]["text"]
@@ -99,7 +100,7 @@ def test_tool_marks_existing_then_card_saves_ticked_rows(seeded, tmp_path, monke
     # Importing the same statement again: everything saved before is recognised.
     with psycopg.connect(DB) as conn:
         again = statement_import.mark_existing(
-            conn, statement_import.validate(ROWS, {1}, date(2026, 11, 16)))
+            conn, statement_import.validate(ROWS, {1}, CATS, date(2026, 11, 16)))
         assert [x["existing"] for x in again][:1] == ["already imported"]
         assert not any(x["include"] for x in again[:4])
         # Ticking them anyway: rows imported before are skipped by id. Row 2 only matched the

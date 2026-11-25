@@ -20,6 +20,7 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 from rental_agent import db, move_out
+from rental_agent.categories import SCHEDULE_E_CATEGORIES
 from rental_agent.config import Settings
 
 # Schedule E (Form 1040) Part I expense lines, in form order.
@@ -235,9 +236,17 @@ def write_xlsx(report: Report, path: Path) -> None:
     sched.append(["Line", "Description", *[label for _, label in report.columns], "Total"])
     sched.append(["3", "Rents received", *[report.rent.get(k, Decimal(0)) for k in keys],
                   report.grand(report.rent)])
+    # The owner's own expense types have no line of their own: they are part of line 19.
+    own_types = sorted({cat for _, cat in report.expenses} - set(SCHEDULE_E_CATEGORIES))
     for line, label, cat in SCHEDULE_E_LINES:
-        values = [report.expenses.get((k, cat), Decimal(0)) for k in keys]
+        cats = [cat, *own_types] if cat == "other" else [cat]
+        values = [sum((report.expenses.get((k, c), Decimal(0)) for c in cats), Decimal(0))
+                  for k in keys]
         sched.append([line, label, *values, sum(values, Decimal(0))])
+    for cat in own_types:
+        values = [report.expenses.get((k, cat), Decimal(0)) for k in keys]
+        sched.append(["", f"   in line 19: {cat.replace('_', ' ')}", *values,
+                      sum(values, Decimal(0))])
     totals = [report.total_expenses(k) for k in keys]
     sched.append(["20", "Total expenses", *totals, sum(totals, Decimal(0))])
     net = [report.rent.get(k, Decimal(0)) - report.total_expenses(k) for k in keys]

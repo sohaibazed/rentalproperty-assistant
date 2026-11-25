@@ -29,7 +29,9 @@ Rules:
   shows an amount due is an "expense" with from_statement true. Use the amount due and the
   statement's own date, not the due date. If nothing is due, it is "ignore".
 - from_statement is false for a receipt or a payment confirmation.
-- For expenses, pick the closest Schedule E category; use null for rent and ignore.
+- For expenses, pick the closest category; use null for rent and ignore. The category list
+  is the Schedule E lines and then the owner's own types (the names after "other"). Use an
+  owner's type when it fits the expense.
 - property_id: choose from the property list only when the email clearly identifies the
   property (address, unit, or tenant tied to it). Otherwise null.
 - confidence below 0.8 means a human should check it.

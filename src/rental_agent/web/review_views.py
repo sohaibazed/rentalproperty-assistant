@@ -6,8 +6,7 @@ from datetime import date
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from rental_agent import corrections, db
-from rental_agent.extract import SCHEDULE_E_CATEGORIES
+from rental_agent import categories, corrections, db
 
 SECTIONS = {"rent": "/rent", "expense": "/expenses"}
 
@@ -40,11 +39,12 @@ def register(app: FastAPI, *, page, flash, connect) -> None:
             with conn:
                 row = corrections.load(conn, kind, row_id)
                 properties = db.properties_list(conn)
+                expense_categories = categories.load(conn)
             if not row:
                 raise HTTPException(404)
             return page(request, "row_edit.html", kind=kind, row=row,
                         v=corrections.values(kind, row), properties=properties,
-                        categories=SCHEDULE_E_CATEGORIES, back=back,
+                        categories=expense_categories, back=back,
                         back_url=back_url(row, back), today=date.today())
 
         @app.post(base + "/{row_id}")
@@ -62,6 +62,8 @@ def register(app: FastAPI, *, page, flash, connect) -> None:
                 try:
                     if action == "save":
                         result = corrections.save(conn, kind, row_id, form, date.today())
+                    elif action == "category" and kind == "expense":
+                        result = corrections.set_category(conn, row_id, form.get("category"))
                     elif action == "checked":
                         result = corrections.mark_checked(conn, kind, row_id, date.today())
                     elif action in ("remove", "restore"):

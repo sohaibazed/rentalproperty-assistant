@@ -11,7 +11,8 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from rental_agent import chat, db, statement_import
+from rental_agent import categories, chat, db, statement_import
+from rental_agent.categories import SCHEDULE_E_CATEGORIES as CATS
 from rental_agent.config import Settings
 from rental_agent.web.app import create_app
 from rental_agent.web.chat_views import ChatManager
@@ -31,7 +32,7 @@ COSTCO = tx(date="2026-06-01", kind="expense", category="supplies", amount=89.99
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    costco_id = statement_import.validate([COSTCO], {1}, date(2026, 11, 16))[0]["id"]
+    costco_id = statement_import.validate([COSTCO], {1}, CATS, date(2026, 11, 16))[0]["id"]
     with psycopg.connect(ADMIN, autocommit=True) as conn:
         conn.execute("truncate chat_messages, chats, rent_payments, expenses, lease_tenants, "
                      "leases, tenants, properties restart identity cascade")
@@ -107,7 +108,7 @@ def test_remove_leaves_totals_and_reimports_then_restore(client):
         assert [e["vendor"] for e in db.expenses_list(conn, 2026)] == ["Home Depot"]    # chat
         # The same statement again: the removed row is recognised, not offered as new.
         again = statement_import.mark_existing(
-            conn, statement_import.validate([COSTCO], {1}, date(2026, 11, 16)))
+            conn, statement_import.validate([COSTCO], {1}, CATS, date(2026, 11, 16)))
         assert again[0]["existing"] == "removed earlier; restore it on the Expenses page"
         assert again[0]["include"] is False
 
@@ -128,7 +129,7 @@ def test_remove_leaves_totals_and_reimports_then_restore(client):
 def test_chat_correction_card(client, tmp_path):
     settings = Settings("m", DB, tmp_path, tmp_path, tmp_path, "s")
     proposals = []
-    tool = {t.name: t for t in chat.make_tools(settings, proposals, set())}["propose_correction"]
+    tool = {t.name: t for t in chat.make_tools(settings, proposals, set(), CATS)}["propose_correction"]
 
     def call(**args):
         return asyncio.run(tool.handler({"changes": {}, "reason": "", **args}))
@@ -174,3 +175,23 @@ def test_out_of_date_schema_points_to_the_fix(client, monkeypatch):
     monkeypatch.setattr(db, "year_totals", missing_column)
     page = client.get("/dashboard", follow_redirects=True).text
     assert "Run supabase/schema.sql again" in page
+
+
+def test_owner_adds_an_expense_type_and_changes_a_row_to_it(client):
+    with psycopg.connect(ADMIN, autocommit=True) as conn:
+        conn.execute("delete from expense_categories where name = 'hoa_dues'")
+    page = post(client, "/expense-types", name="HOA dues", year="2026")
+    assert "Added the type &#39;hoa dues&#39;" in page
+    assert '<option value="hoa_dues" >hoa dues</option>' in page       # in each row's list
+    assert "already exists" in post(client, "/expense-types", name="hoa-dues", year="2026")
+    assert "Not added" in post(client, "/expense-types", name="!", year="2026")
+
+    page = post(client, "/expenses/1", action="category", category="hoa_dues")
+    assert "Category changed to hoa dues." in page
+    assert one("select schedule_e_category, needs_review from expenses where id = 1") == \
+        ("hoa_dues", True)                                  # still flagged for review
+    assert "Not saved: unknown category" in post(client, "/expenses/1", action="category",
+                                                 category="groceries")
+    assert "Not saved" in post(client, "/rent/1", action="category", category="hoa_dues")
+    with db.connect(DB) as conn:
+        assert categories.load(conn)[-2:] == ["other", "hoa_dues"]

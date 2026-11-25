@@ -114,3 +114,24 @@ def test_outputs(tmp_path):
 
     with csv_path.open() as fh:
         assert len(list(csv.DictReader(fh))) == len(_rents()) + len(EXPENSES)
+
+
+def test_owner_expense_types_are_part_of_line_19(tmp_path):
+    hoa = [ExpenseRow(7, 1, D(300), date(2026, 2, 1), "Willow Crest HOA", None, "hoa_dues",
+                      None, False),
+           ExpenseRow(8, 1, D(40), date(2026, 2, 2), "City", None, "other", None, False)]
+    r = build_report(2026, PROPS, _rents(), [*EXPENSES, *hoa], LEASES, date(2027, 1, 15))
+    write_xlsx(r, tmp_path / "s.xlsx")
+    rows = list(load_workbook(tmp_path / "s.xlsx")["Schedule E"].iter_rows(values_only=True))
+    by_line = {row[0]: row for row in rows}
+    plain = {row[0]: row for row in load_workbook(_plain(tmp_path))["Schedule E"]
+             .iter_rows(values_only=True)}
+    assert by_line["19"][2] == plain["19"][2] + 340          # other + hoa dues, Oak St
+    assert by_line["20"][-1] == plain["20"][-1] + 340
+    [listed] = [row for row in rows if row[0] is None]
+    assert listed[1].strip() == "in line 19: hoa dues" and listed[2] == 300
+
+
+def _plain(tmp_path):
+    write_xlsx(_report(), tmp_path / "plain.xlsx")
+    return tmp_path / "plain.xlsx"

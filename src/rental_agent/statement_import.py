@@ -18,36 +18,37 @@ from typing import Any
 import psycopg
 
 from rental_agent import db
-from rental_agent.extract import SCHEDULE_E_CATEGORIES
 
 MAX_ROWS = 300
 MAX_AMOUNT = Decimal(100000)
 MATCH_DAYS = 3  # a recorded payment this close in date, same amount, is probably the same one
 
-TRANSACTIONS_SCHEMA: dict[str, Any] = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {
-            "date": {"type": "string", "description": "YYYY-MM-DD, as posted"},
-            "amount": {"type": "number", "description": "positive, in dollars"},
-            "description": {"type": "string", "description": "the statement's description, "
-                            "as printed"},
-            "kind": {"type": "string", "enum": ["rent", "expense"]},
-            "category": {"type": ["string", "null"], "enum": [*SCHEDULE_E_CATEGORIES, None],
-                         "description": "Schedule E category for an expense; null for rent"},
-            "property_id": {"type": ["integer", "null"],
-                            "description": "required for rent; null = LLC-wide expense"},
-            "payer_or_vendor": {"type": ["string", "null"]},
-            "include": {"type": "boolean", "description": "false when unsure it's a rental "
-                        "transaction; the owner decides"},
-            "note": {"type": ["string", "null"], "description": "why it's unsure, or what to "
-                     "check"},
+
+def transactions_schema(categories: list[str]) -> dict[str, Any]:
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "date": {"type": "string", "description": "YYYY-MM-DD, as posted"},
+                "amount": {"type": "number", "description": "positive, in dollars"},
+                "description": {"type": "string", "description": "the statement's description, "
+                                "as printed"},
+                "kind": {"type": "string", "enum": ["rent", "expense"]},
+                "category": {"type": ["string", "null"], "enum": [*categories, None],
+                             "description": "category for an expense; null for rent"},
+                "property_id": {"type": ["integer", "null"],
+                                "description": "required for rent; null = LLC-wide expense"},
+                "payer_or_vendor": {"type": ["string", "null"]},
+                "include": {"type": "boolean", "description": "false when unsure it's a rental "
+                            "transaction; the owner decides"},
+                "note": {"type": ["string", "null"], "description": "why it's unsure, or what to "
+                         "check"},
+            },
+            "required": ["date", "amount", "description", "kind", "category", "property_id",
+                         "payer_or_vendor", "include", "note"],
         },
-        "required": ["date", "amount", "description", "kind", "category", "property_id",
-                     "payer_or_vendor", "include", "note"],
-    },
-}
+    }
 
 
 def _row_id(on: str, amount: str, description: str, occurrence: int) -> str:
@@ -55,7 +56,8 @@ def _row_id(on: str, amount: str, description: str, occurrence: int) -> str:
     return "stmt:" + hashlib.sha256(key.encode()).hexdigest()[:24]
 
 
-def validate(rows: list[dict[str, Any]], property_ids: set[int], today: date) -> list[dict]:
+def validate(rows: list[dict[str, Any]], property_ids: set[int], categories: list[str],
+             today: date) -> list[dict]:
     """Check each transaction; returns clean rows with ids, or raises ValueError."""
     if not rows:
         raise ValueError("no transactions to import")
@@ -85,9 +87,8 @@ def validate(rows: list[dict[str, Any]], property_ids: set[int], today: date) ->
                 raise ValueError(f"{where}: rent needs the property_id it was paid for")
             category = None
         elif kind == "expense":
-            if category not in SCHEDULE_E_CATEGORIES:
-                raise ValueError(f"{where}: category must be one of "
-                                 + ", ".join(SCHEDULE_E_CATEGORIES))
+            if category not in categories:
+                raise ValueError(f"{where}: category must be one of " + ", ".join(categories))
             if property_id is not None and property_id not in property_ids:
                 raise ValueError(f"{where}: unknown property_id {property_id}")
         else:

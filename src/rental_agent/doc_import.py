@@ -1,6 +1,6 @@
 """Import a new lease, LLC document or year-end document into the database.
 
-The model that reads the document (the web chat, or Claude Code) fills in IMPORT_SCHEMA by
+The model that reads the document (the web chat, or Claude Code) fills in import_schema() by
 following the import-document skill. This module checks those facts (`validate`) and, after the
 owner confirms, saves them (`apply`): the LLC, the property, tenants and lease term, and the
 document's text for later questions. Nothing is ever deleted.
@@ -23,9 +23,8 @@ from typing import Any
 import psycopg
 from pypdf import PdfReader
 
-from rental_agent import db
+from rental_agent import categories, db
 from rental_agent.config import artifacts_dir
-from rental_agent.extract import SCHEDULE_E_CATEGORIES
 
 DOC_TYPES = ["lease", "lease_extension", "llc_formation", "operating_agreement", "ein_letter",
              "form_1098", "property_tax_statement", "insurance_declaration", "other"]
@@ -48,64 +47,66 @@ ZIP = re.compile(r"^\d{5}(-\d{4})?$")
 
 _text = {"type": ["string", "null"]}
 _names = {"type": "array", "items": {"type": "string"}}
-IMPORT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "doc_type": {"type": "string", "enum": DOC_TYPES},
-        "title": {"type": "string", "description": "Short title, e.g. '2027 lease extension, "
-                  "8705 Empire Blvd'"},
-        "summary": {"type": "string", "description": "Markdown summary of the key facts and "
-                    "clauses, with page or paragraph numbers. Never include SSNs."},
-        "owner_llc": {**_text, "description": "For a lease: the LLC that owns the property, "
-                      "if known (must already be imported). Otherwise null."},
-        "llc": {"type": ["object", "null"], "properties": {
-            "name": {"type": "string"}, "state": _text, "file_number": _text, "ein": _text,
-            "formed_on": {**_text, "description": "YYYY-MM-DD"},
-            "management": {"type": ["string", "null"], "enum": ["managers", "members", None]},
-            "members": {"type": "array", "items": {"type": "object", "properties": {
-                "name": {"type": "string"}, "percent": {"type": ["number", "null"]}},
-                "required": ["name", "percent"]}},
-            "managers": _names, "registered_agent": _text, "registered_office": _text,
-            "mailing_address": _text},
-            "required": ["name"]},
-        "lease": {"type": ["object", "null"], "properties": {
-            "address": {"type": "string", "description": "Street address only"},
-            "unit": _text, "city": {"type": "string"}, "county": _text,
-            "state": {"type": "string", "description": "2 letters"},
-            "zip": {"type": "string"}, "landlord_names": _names, "tenant_names": _names,
-            "start_date": {"type": "string", "description": "YYYY-MM-DD"},
-            "end_date": {"type": "string", "description": "YYYY-MM-DD"},
-            "monthly_rent": {"type": "number"}, "deposit": {"type": ["number", "null"]},
-            "original_lease_date": {**_text, "description": "For an extension: date of the "
-                                    "lease it extends, YYYY-MM-DD"},
-            "other_terms": _text},
-            "required": ["address", "city", "state", "zip", "landlord_names", "tenant_names",
-                         "start_date", "end_date", "monthly_rent"]},
-        "property_id": {"type": ["integer", "null"], "description": "For a form_1098, "
-                        "property_tax_statement or insurance_declaration: the id of the "
-                        "property it is for. Otherwise null."},
-        "expenses": {"type": "array", "description": "For a form_1098, property_tax_statement "
-                     "or insurance_declaration: one line per amount to record as an expense. "
-                     "Otherwise empty.",
-                     "items": {"type": "object", "properties": {
-                         "date": {"type": "string", "description": "YYYY-MM-DD; not in the "
-                                  "future"},
-                         "amount": {"type": "number"},
-                         "category": {"type": "string", "enum": SCHEDULE_E_CATEGORIES},
-                         "vendor": {"type": "string", "description": "The lender, tax office "
-                                    "or insurer"},
-                         "description": {"type": "string", "description": "What the amount is "
-                                         "and where the document shows it, e.g. 'Mortgage "
-                                         "interest 2026, Form 1098 box 1'"},
-                         "include": {"type": "boolean", "description": "false when unsure it "
-                                     "should be recorded; the owner decides"},
-                         "note": {**_text, "description": "Why it's unsure, or what to check"}},
-                         "required": ["date", "amount", "category", "vendor", "description",
-                                      "include", "note"]}},
-    },
-    "required": ["doc_type", "title", "summary", "owner_llc", "llc", "lease", "property_id",
-                 "expenses"],
-}
+
+def import_schema(expense_categories: list[str]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "doc_type": {"type": "string", "enum": DOC_TYPES},
+            "title": {"type": "string", "description": "Short title, e.g. '2027 lease extension, "
+                      "8705 Empire Blvd'"},
+            "summary": {"type": "string", "description": "Markdown summary of the key facts and "
+                        "clauses, with page or paragraph numbers. Never include SSNs."},
+            "owner_llc": {**_text, "description": "For a lease: the LLC that owns the property, "
+                          "if known (must already be imported). Otherwise null."},
+            "llc": {"type": ["object", "null"], "properties": {
+                "name": {"type": "string"}, "state": _text, "file_number": _text, "ein": _text,
+                "formed_on": {**_text, "description": "YYYY-MM-DD"},
+                "management": {"type": ["string", "null"], "enum": ["managers", "members", None]},
+                "members": {"type": "array", "items": {"type": "object", "properties": {
+                    "name": {"type": "string"}, "percent": {"type": ["number", "null"]}},
+                    "required": ["name", "percent"]}},
+                "managers": _names, "registered_agent": _text, "registered_office": _text,
+                "mailing_address": _text},
+                "required": ["name"]},
+            "lease": {"type": ["object", "null"], "properties": {
+                "address": {"type": "string", "description": "Street address only"},
+                "unit": _text, "city": {"type": "string"}, "county": _text,
+                "state": {"type": "string", "description": "2 letters"},
+                "zip": {"type": "string"}, "landlord_names": _names, "tenant_names": _names,
+                "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                "monthly_rent": {"type": "number"}, "deposit": {"type": ["number", "null"]},
+                "original_lease_date": {**_text, "description": "For an extension: date of the "
+                                        "lease it extends, YYYY-MM-DD"},
+                "other_terms": _text},
+                "required": ["address", "city", "state", "zip", "landlord_names", "tenant_names",
+                             "start_date", "end_date", "monthly_rent"]},
+            "property_id": {"type": ["integer", "null"], "description": "For a form_1098, "
+                            "property_tax_statement or insurance_declaration: the id of the "
+                            "property it is for. Otherwise null."},
+            "expenses": {"type": "array", "description": "For a form_1098, property_tax_statement "
+                         "or insurance_declaration: one line per amount to record as an expense. "
+                         "Otherwise empty.",
+                         "items": {"type": "object", "properties": {
+                             "date": {"type": "string", "description": "YYYY-MM-DD; not in the "
+                                      "future"},
+                             "amount": {"type": "number"},
+                             "category": {"type": "string", "enum": expense_categories},
+                             "vendor": {"type": "string", "description": "The lender, tax office "
+                                        "or insurer"},
+                             "description": {"type": "string", "description": "What the amount is "
+                                             "and where the document shows it, e.g. 'Mortgage "
+                                             "interest 2026, Form 1098 box 1'"},
+                             "include": {"type": "boolean", "description": "false when unsure it "
+                                         "should be recorded; the owner decides"},
+                             "note": {**_text, "description": "Why it's unsure, or what to check"}},
+                             "required": ["date", "amount", "category", "vendor", "description",
+                                          "include", "note"]}},
+        },
+        "required": ["doc_type", "title", "summary", "owner_llc", "llc", "lease", "property_id",
+                     "expenses"],
+    }
 
 
 # --- Text helpers -------------------------------------------------------------------------
@@ -258,7 +259,8 @@ def _expense_id(property_id: int, category: str, on: str, amount: str, occurrenc
     return "doc:" + hashlib.sha256(key.encode()).hexdigest()[:24]
 
 
-def _expenses(lines: list[dict[str, Any]], property_id: int) -> list[dict[str, Any]]:
+def _expenses(lines: list[dict[str, Any]], property_id: int,
+              expense_categories: list[str]) -> list[dict[str, Any]]:
     if len(lines) > MAX_EXPENSE_LINES:
         raise ValueError(f"at most {MAX_EXPENSE_LINES} expense lines per document")
     seen: Counter[tuple[str, str, str]] = Counter()
@@ -273,9 +275,9 @@ def _expenses(lines: list[dict[str, Any]], property_id: int) -> list[dict[str, A
         if Decimal(amount) == 0:
             raise ValueError(f"{where}: amount must be more than $0")
         category = raw.get("category")
-        if category not in SCHEDULE_E_CATEGORIES:
+        if category not in expense_categories:
             raise ValueError(f"{where}: category must be one of "
-                             + ", ".join(SCHEDULE_E_CATEGORIES))
+                             + ", ".join(expense_categories))
         seen[category, on, amount] += 1
         out.append({
             "id": _expense_id(property_id, category, on, amount, seen[category, on, amount]),
@@ -290,7 +292,7 @@ def _expenses(lines: list[dict[str, Any]], property_id: int) -> list[dict[str, A
     return out
 
 
-def validate(raw: dict[str, Any]) -> dict[str, Any]:
+def validate(raw: dict[str, Any], expense_categories: list[str]) -> dict[str, Any]:
     """Check the extracted facts. Returns a clean, JSON-safe copy or raises ValueError."""
     doc_type = raw.get("doc_type")
     if doc_type not in DOC_TYPES:
@@ -312,7 +314,7 @@ def validate(raw: dict[str, Any]) -> dict[str, Any]:
         property_id = raw.get("property_id")
         if not isinstance(property_id, int) or isinstance(property_id, bool):
             raise ValueError(f"a {doc_type} needs property_id: the property it is for")
-        expenses = _expenses(expenses, property_id)
+        expenses = _expenses(expenses, property_id, expense_categories)
     elif expenses:
         raise ValueError(f"a {doc_type} can't carry expense lines; only "
                          + ", ".join(sorted(YEAR_END_TYPES)) + " can")
@@ -498,7 +500,8 @@ def apply(conn: psycopg.Connection, data: dict[str, Any], source: Path,
 
     `selected` holds the ids of the expense lines the owner ticked on the card. Without it
     (the command line), every line that is marked to include and isn't recorded yet is saved."""
-    data = validate(data)  # re-check: the stored card may be old or edited
+    # Re-check: the stored card may be old or edited.
+    data = validate(data, categories.load(conn))
     stored = _stored(source)
     done: list[str] = []
     llc_id = None

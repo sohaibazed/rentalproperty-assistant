@@ -29,6 +29,7 @@ tbody tr:hover { background: var(--subtle); }
 tr.total td { font-weight: 700; border-top: 2px solid var(--line); }
 tr.removed td { color: var(--muted); } tr.removed td.r { text-decoration: line-through; }
 td form.inline { margin: 0; } td form.inline button { white-space: nowrap; }
+select.cell-select { padding: 4px 6px; font-size: 14px; }
 .clip { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 form { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 form.inline { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }

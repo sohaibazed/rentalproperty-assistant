@@ -176,7 +176,7 @@ def rent_for_year(conn: psycopg.Connection, year: int) -> list[RentRow]:
 def expenses_for_year(conn: psycopg.Connection, year: int) -> list[ExpenseRow]:
     rows = conn.execute(
         """select id, property_id, amount, spent_on, vendor, description,
-                  schedule_e_category::text, receipt_path, needs_review
+                  schedule_e_category, receipt_path, needs_review
            from expenses
            where extract(year from spent_on) = %s and removed_at is null
            order by spent_on, id""",
@@ -562,7 +562,7 @@ _RENT_ROWS = """select r.id, r.paid_on, r.amount, r.payer, r.needs_review, r.rem
                        l.property_id, p.address
                 from rent_payments r left join leases l on l.id = r.lease_id
                 left join properties p on p.id = l.property_id"""
-_EXPENSE_ROWS = """select e.id, e.spent_on, e.amount, e.schedule_e_category::text as category,
+_EXPENSE_ROWS = """select e.id, e.spent_on, e.amount, e.schedule_e_category as category,
                           e.vendor, e.description, e.receipt_path, e.needs_review, e.removed_at,
                           e.property_id, p.address
                    from expenses e left join properties p on p.id = e.property_id"""
@@ -647,6 +647,14 @@ def update_expense(conn: psycopg.Connection, row_id: int, *, property_id: int | 
                   description = %s, schedule_e_category = %s, needs_review = false
            where id = %s and removed_at is null""",
         (property_id, amount, spent_on, vendor, description, category, row_id))
+    return cur.rowcount == 1
+
+
+def set_expense_category(conn: psycopg.Connection, row_id: int, category: str) -> bool:
+    """Leaves the review flag as it is. Returns False if the row doesn't exist or was removed."""
+    cur = conn.execute(
+        "update expenses set schedule_e_category = %s where id = %s and removed_at is null",
+        (category, row_id))
     return cur.rowcount == 1
 
 

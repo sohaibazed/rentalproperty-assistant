@@ -5,8 +5,6 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from rental_agent.extract import SCHEDULE_E_CATEGORIES
-
 REVIEW_CONFIDENCE = 0.8
 MAX_AMOUNT = Decimal(100000)
 MAX_AGE = timedelta(days=730)
@@ -30,7 +28,8 @@ class Candidate:
 
 
 def validate(
-    raw: dict[str, Any], *, email_date: date, known_property_ids: set[int], today: date
+    raw: dict[str, Any], *, email_date: date, known_property_ids: set[int],
+    categories: list[str], today: date
 ) -> Candidate:
     """Raise ValidationError for output that can't be stored; flag doubtful-but-storable items."""
     kind = raw.get("kind")
@@ -51,7 +50,7 @@ def validate(
 
     category = raw.get("category")
     if kind == "expense":
-        if category not in SCHEDULE_E_CATEGORIES:
+        if category not in categories:
             raise ValidationError(f"invalid expense category: {category!r}")
         if category == "other":
             reasons.append("category is 'other'")
